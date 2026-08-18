@@ -29,9 +29,24 @@ importers:
       '@acm/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@acm/event-store':
+        specifier: workspace:*
+        version: link:../../packages/event-store
+      '@acm/reducers':
+        specifier: workspace:*
+        version: link:../../packages/reducers
 
   packages/core:
     dependencies:
+      zod:
+        specifier: ^4.1.5
+        version: 4.4.3
+
+  packages/event-store:
+    dependencies:
+      '@acm/core':
+        specifier: workspace:*
+        version: link:../core
       zod:
         specifier: ^4.1.5
         version: 4.4.3

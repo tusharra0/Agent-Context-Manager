@@ -3,3 +3,4 @@ dist
 coverage
 artifacts
 pnpm-lock.yaml
+packages/reducers/test/fixtures/

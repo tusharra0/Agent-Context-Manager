@@ -264,4 +264,245 @@ describe('SqliteMetadataStore', () => {
       expect((await stat(path)).mode & 0o777).toBe(0o600);
     },
   );
+
+  it('persists state updates transactionally and verifies replay after restart', async () => {
+    const path = await databasePath();
+    let store = new SqliteMetadataStore(path);
+    store.createSession({ id: SESSION_ID, createdAt: NOW });
+    const recorded = store.recordStateUpdate({
+      eventId: EVENT_1,
+      sessionId: SESSION_ID,
+      eventCreatedAt: NOW,
+      artifact,
+      transition: {
+        schemaVersion: 1,
+        expectedRevision: 0,
+        operations: [
+          {
+            operation: 'set-goal',
+            itemId: 'sti_11111111111141118111111111111111',
+            text: 'Recover after compaction',
+            provenance: [{ sourceEventId: EVENT_1, artifactUri: artifact.uri }],
+          },
+        ],
+      },
+    });
+    expect(recorded.state).toMatchObject({
+      revision: 1,
+      throughSequence: 1,
+      goal: { text: 'Recover after compaction' },
+    });
+    store.close();
+
+    store = new SqliteMetadataStore(path);
+    expect(store.verifyWorkingState(SESSION_ID)).toEqual(
+      store.getWorkingState(SESSION_ID),
+    );
+    expect(store.listSessionEvents(SESSION_ID)).toHaveLength(1);
+    store.close();
+
+    const database = new DatabaseSync(path);
+    database
+      .prepare('DELETE FROM state_provenance WHERE update_event_id = ?')
+      .run(EVENT_1);
+    database.close();
+    store = new SqliteMetadataStore(path);
+    expect(() => store.verifyWorkingState(SESSION_ID)).toThrow(
+      'provenance does not match',
+    );
+    store.close();
+  });
+
+  it('upgrades an existing version-1 database without changing Phase 1 records', async () => {
+    const path = await databasePath();
+    let store = new SqliteMetadataStore(path);
+    store.createSession({ id: SESSION_ID, createdAt: NOW });
+    store.recordReduction(reductionInput(EVENT_1));
+    store.close();
+
+    const database = new DatabaseSync(path);
+    database.exec('DROP TABLE state_provenance');
+    database.exec('DROP TABLE working_state_snapshots');
+    database.prepare('DELETE FROM schema_migrations WHERE version = 2').run();
+    database.close();
+
+    store = new SqliteMetadataStore(path);
+    expect(store.getEvent(EVENT_1)?.event.id).toBe(EVENT_1);
+    expect(store.getWorkingState(SESSION_ID)).toMatchObject({ revision: 0 });
+    store.close();
+  });
+
+  it('rejects cross-session provenance and rolls back the state event', async () => {
+    const path = await databasePath();
+    const store = new SqliteMetadataStore(path);
+    const otherSession = 'ses_22222222222242228222222222222222';
+    store.createSession({ id: SESSION_ID, createdAt: NOW });
+    store.createSession({ id: otherSession, createdAt: NOW });
+    expect(() =>
+      store.recordStateUpdate({
+        eventId: EVENT_2,
+        sessionId: SESSION_ID,
+        eventCreatedAt: NOW,
+        artifact,
+        transition: {
+          schemaVersion: 1,
+          expectedRevision: 0,
+          operations: [
+            {
+              operation: 'set-goal',
+              itemId: 'sti_22222222222242228222222222222222',
+              text: 'Invalid artifact provenance',
+              provenance: [
+                {
+                  sourceEventId: EVENT_2,
+                  artifactUri: `artifact://sha256/${'b'.repeat(64)}`,
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ).toThrow('artifact does not match');
+    store.recordStateUpdate({
+      eventId: EVENT_1,
+      sessionId: otherSession,
+      eventCreatedAt: NOW,
+      artifact,
+      transition: {
+        schemaVersion: 1,
+        expectedRevision: 0,
+        operations: [
+          {
+            operation: 'set-goal',
+            itemId: 'sti_11111111111141118111111111111111',
+            text: 'Other goal',
+            provenance: [{ sourceEventId: EVENT_1 }],
+          },
+        ],
+      },
+    });
+    expect(() =>
+      store.recordStateUpdate({
+        eventId: EVENT_2,
+        sessionId: SESSION_ID,
+        eventCreatedAt: NOW,
+        artifact,
+        transition: {
+          schemaVersion: 1,
+          expectedRevision: 0,
+          operations: [
+            {
+              operation: 'set-goal',
+              itemId: 'sti_22222222222242228222222222222222',
+              text: 'Invalid provenance',
+              provenance: [{ sourceEventId: EVENT_1 }],
+            },
+          ],
+        },
+      }),
+    ).toThrow('belongs to another session');
+    expect(store.getWorkingState(SESSION_ID).revision).toBe(0);
+    expect(store.listSessionEvents(SESSION_ID)).toEqual([]);
+    store.close();
+  });
+
+  it('records file observations and finds duplicates only for exact path, scope, and hash', async () => {
+    const path = await databasePath();
+    let store = new SqliteMetadataStore(path);
+    store.createSession({ id: SESSION_ID, createdAt: NOW });
+    const payload = {
+      schemaVersion: 1 as const,
+      path: 'src/index.ts',
+      pathKind: 'repository-relative' as const,
+      scope: { kind: 'full' as const },
+      encoding: 'utf-8' as const,
+    };
+    const reducedText = canonicalJson({
+      schemaVersion: 1,
+      kind: 'file-read',
+      ...payload,
+      contentStatus: 'artifact-required',
+      evidence: {
+        rawArtifactUri: artifact.uri,
+        contentHash: artifact.digest,
+        byteLength: artifact.byteLength,
+      },
+      safeForContext: false,
+    });
+    const record = {
+      eventId: EVENT_1,
+      sessionId: SESSION_ID,
+      kind: 'file_read' as const,
+      eventCreatedAt: NOW,
+      payload,
+      artifact,
+      reduction: {
+        reducerId: 'file-read/exact-hash',
+        reducerVersion: '1.0.0',
+        reducedText,
+        safeForContext: false,
+        originalTokenEstimate: 3,
+        reducedTokenEstimate: 2,
+        tokenEstimatorId: 'test@1',
+        preservedFields: ['/path'],
+        diagnostics: [],
+      },
+      reductionCreatedAt: NOW,
+    };
+    const contradictory = JSON.parse(reducedText) as { path: string };
+    contradictory.path = 'src/contradiction.ts';
+    expect(() =>
+      store.recordObservationReduction({
+        ...record,
+        reduction: {
+          ...record.reduction,
+          reducedText: canonicalJson(contradictory),
+        },
+      }),
+    ).toThrow('does not match its source payload');
+    store.recordObservationReduction(record);
+    expect(
+      store.findDuplicateFileRead(
+        SESSION_ID,
+        payload.path,
+        payload.pathKind,
+        payload.scope,
+        artifact.digest,
+      ),
+    ).toBe(EVENT_1);
+    expect(
+      store.findDuplicateFileRead(
+        SESSION_ID,
+        'src/other.ts',
+        payload.pathKind,
+        payload.scope,
+        artifact.digest,
+      ),
+    ).toBeUndefined();
+    expect(store.listSessionEvents(SESSION_ID)[0]).toMatchObject({
+      event: { kind: 'file_read' },
+      reduction: { safeForContext: false },
+    });
+    store.close();
+
+    const corruptedReduction = JSON.parse(reducedText) as Record<
+      string,
+      unknown
+    >;
+    corruptedReduction.duplicateOfEventId = EVENT_2;
+    corruptedReduction.contentStatus = 'duplicate-reference';
+    corruptedReduction.safeForContext = true;
+    const database = new DatabaseSync(path);
+    database
+      .prepare(
+        'UPDATE reductions SET reduced_text = ?, safe_for_context = 1 WHERE event_id = ?',
+      )
+      .run(canonicalJson(corruptedReduction), EVENT_1);
+    database.close();
+    store = new SqliteMetadataStore(path);
+    expect(() => store.getAnyEvent(EVENT_1)).toThrow(
+      'does not reference an earlier exact observation',
+    );
+    store.close();
+  });
 });

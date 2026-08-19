@@ -24,12 +24,12 @@
 
 ## Phase 2: Working state and context assembly
 
-- [ ] Implement durable working-state transitions
-- [ ] Add provenance and supersession rules
-- [ ] Implement file-read deduplication
-- [ ] Implement search- and build-output reducers
-- [ ] Assemble context under a configurable budget
-- [ ] Add forced-compaction recovery probes
+- [x] Implement durable working-state transitions
+- [x] Add provenance and supersession rules
+- [x] Implement file-read deduplication
+- [x] Implement search- and build-output reducers
+- [x] Assemble context under a configurable budget
+- [x] Add forced-compaction recovery probes
 
 ## Phase 3: Offline evaluation
 

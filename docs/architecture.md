@@ -128,7 +128,7 @@ Records experimental condition, harness, model, repository fixture, task outcome
 - Aggregated results may be sent to a hosted dashboard.
 - Raw proprietary content is not synchronized unless explicitly configured.
 
-## Planned internal packages
+## Internal package boundaries
 
 ```text
 @acm/core             Domain schemas and types
@@ -142,6 +142,10 @@ Records experimental condition, harness, model, repository fixture, task outcome
 ```
 
 Only create a package when its vertical slice starts.
+
+The core, reducers, event store, working-state, and context-assembler packages
+are implemented through Phase 2. Harness and evaluation packages remain future
+boundaries and have not been scaffolded prematurely.
 
 ## Architectural risks
 

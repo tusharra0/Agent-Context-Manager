@@ -6,10 +6,10 @@ It stores a lossless session record outside the model's immediate prompt, reduce
 
 ## Current status
 
-Phase 1, lossless event reduction, is implemented. The CLI can ingest a Vitest
-JSON report, retain its original bytes in local content-addressed storage,
-record versioned event and reduction metadata in SQLite, emit a deterministic
-reduction, inspect the record, and restore the original bytes.
+Phases 1 and 2 are implemented. In addition to lossless Vitest reduction, the
+CLI maintains replayable working state, deduplicates exact file reads, reduces
+structured ripgrep and TypeScript output, and assembles context under an
+explicit budget without truncating mandatory facts.
 
 ## Requirements
 
@@ -47,7 +47,9 @@ pnpm dev            # run the CLI through tsx
 apps/cli/          Local command-line entry point
 packages/core/     Stable domain schemas and types
 packages/event-store/ Content-addressed artifacts and SQLite metadata
-packages/reducers/ Vitest JSON parser, deterministic reducer, token estimator
+packages/reducers/ Deterministic test, file, search, and build reducers
+packages/working-state/ Pure transitions, invariants, and replay
+packages/context-assembler/ Priority and token-budget context selection
 ```
 
 Additional packages should be created when their implementation starts, not merely to mirror a future diagram.
@@ -100,3 +102,54 @@ as they are consumed. On POSIX systems, ACM-owned storage directories and
 files are restricted to the current user, and storage components reject
 symbolic links at managed artifact and database paths. No network service,
 model, or credential is used.
+
+## Phase 2 walkthrough
+
+Record a UTF-8 file read using an explicit logical path and scope:
+
+```bash
+pnpm --filter @acm/cli dev -- reduce src/index.ts \
+  --type file-read \
+  --path src/index.ts \
+  --path-kind repository-relative \
+  --scope full \
+  --encoding utf-8 \
+  --data-dir .acm-data
+```
+
+The first read is labeled `artifact-required` and exits with code 2 because its
+metadata-only reduction is not a substitute for source text. Assembly verifies
+and restores the content when it fits; an exact repeated read can safely use a
+small duplicate reference.
+
+Use the returned session ID to apply a typed state update. New item IDs and
+self-provenance are generated when omitted:
+
+```json
+{
+  "schemaVersion": 1,
+  "expectedRevision": 0,
+  "operations": [
+    { "operation": "set-goal", "text": "Implement the current phase" },
+    {
+      "operation": "add-fact",
+      "category": "requirement",
+      "text": "Never discard raw evidence"
+    }
+  ]
+}
+```
+
+```bash
+pnpm --filter @acm/cli dev -- state apply state-update.json \
+  --session <session-id> --data-dir .acm-data
+pnpm --filter @acm/cli dev -- state verify \
+  --session <session-id> --data-dir .acm-data
+pnpm --filter @acm/cli dev -- assemble \
+  --session <session-id> --token-budget 8000 --data-dir .acm-data
+```
+
+Assembly exits with code 2 and reports `mandatory-overflow` when required
+context alone exceeds the requested budget. The required context is returned
+whole so callers can raise the budget or choose an explicit policy rather than
+accept silent information loss.

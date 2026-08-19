@@ -10,12 +10,13 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/index.ts",
     "doctor": "tsx src/index.ts doctor",
-    "pretest": "pnpm --filter @acm/core build && pnpm --filter @acm/event-store build && pnpm --filter @acm/reducers build",
+    "pretest": "pnpm --filter @acm/core build && pnpm --filter @acm/working-state build && pnpm --filter @acm/context-assembler build && pnpm --filter @acm/event-store build && pnpm --filter @acm/reducers build",
     "test": "vitest run --pool=forks --maxWorkers=1",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@acm/core": "workspace:*",
+    "@acm/context-assembler": "workspace:*",
     "@acm/event-store": "workspace:*",
     "@acm/reducers": "workspace:*"
   }

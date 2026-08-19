@@ -156,11 +156,48 @@ describe('versioned schemas', () => {
 });
 
 describe('DurableWorkingStateSchema', () => {
-  it('adds safe empty defaults', () => {
+  it('requires an explicit versioned session projection', () => {
     const state = DurableWorkingStateSchema.parse({
+      schemaVersion: 1,
+      sessionId: createSessionId(() => UUID),
+      revision: 0,
+      throughSequence: 0,
+      requirements: [],
+      decisions: [],
+      files: [],
+      failures: [],
+      workItems: [],
       updatedAt: '2026-08-16T12:00:00.000Z',
     });
     expect(state.requirements).toEqual([]);
-    expect(state.currentFailures).toEqual([]);
+    expect(state.failures).toEqual([]);
+  });
+
+  it('rejects category-invalid statuses in persisted projections', () => {
+    const sourceEventId = createEventId(() => UUID);
+    expect(
+      DurableWorkingStateSchema.safeParse({
+        schemaVersion: 1,
+        sessionId: createSessionId(() => UUID),
+        revision: 1,
+        throughSequence: 1,
+        requirements: [
+          {
+            id: 'sti_0123456789ab4def8123456789abcdef',
+            text: 'Requirement',
+            status: 'resolved',
+            retention: 'required',
+            provenance: [{ sourceEventId }],
+            introducedAtSequence: 1,
+            updatedAtSequence: 1,
+          },
+        ],
+        decisions: [],
+        files: [],
+        failures: [],
+        workItems: [],
+        updatedAt: '2026-08-16T12:00:00.000Z',
+      }).success,
+    ).toBe(false);
   });
 });

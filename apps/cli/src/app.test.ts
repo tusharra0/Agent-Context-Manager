@@ -1,4 +1,11 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  access,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -247,5 +254,454 @@ describe('Phase 1 CLI', () => {
     ]);
     expect(restored.exitCode).toBe(1);
     expect(await readFile(output, 'utf8')).toBe('do not replace');
+  });
+});
+
+describe('Phase 2 CLI', () => {
+  it('deduplicates exact file reads within a session', async () => {
+    const dataDirectory = await temporaryDirectory();
+    const input = join(dataDirectory, 'index.ts');
+    await writeFile(input, 'export const value = 1;\n');
+    const base = [
+      'reduce',
+      input,
+      '--type',
+      'file-read',
+      '--path',
+      'src/index.ts',
+      '--path-kind',
+      'repository-relative',
+      '--scope',
+      'full',
+      '--encoding',
+      'utf-8',
+      '--data-dir',
+      dataDirectory,
+    ];
+    const first = JSON.parse((await invoke(base)).stdout[0]!) as {
+      sessionId: string;
+      eventId: string;
+      reduction: { duplicateOfEventId?: string };
+    };
+    expect(first.reduction.duplicateOfEventId).toBeUndefined();
+    const second = JSON.parse(
+      (await invoke([...base, '--session', first.sessionId])).stdout[0]!,
+    ) as typeof first;
+    expect(second.reduction.duplicateOfEventId).toBe(first.eventId);
+    const inspected = await invoke([
+      'inspect',
+      'event',
+      second.eventId,
+      '--data-dir',
+      dataDirectory,
+      '--json',
+    ]);
+    expect(inspected.exitCode).toBe(0);
+    expect(JSON.parse(inspected.stdout[0]!)).toMatchObject({
+      event: { kind: 'file_read' },
+      reduction: { safeForContext: true },
+    });
+    const assembled = await invoke([
+      'assemble',
+      '--session',
+      first.sessionId,
+      '--token-budget',
+      '10000',
+      '--data-dir',
+      dataDirectory,
+    ]);
+    expect(assembled.exitCode).toBe(0);
+    expect(assembled.stdout[0]).toContain('export const value = 1;');
+  });
+
+  it('recovers mandatory state after fresh-process compaction and reports budget overflow', async () => {
+    const dataDirectory = await temporaryDirectory();
+    const file = join(dataDirectory, 'source.ts');
+    await writeFile(file, 'export {};\n');
+    const reduced = await invoke([
+      'reduce',
+      file,
+      '--type',
+      'file-read',
+      '--path',
+      'src/source.ts',
+      '--path-kind',
+      'repository-relative',
+      '--scope',
+      'full',
+      '--encoding',
+      'utf-8',
+      '--data-dir',
+      dataDirectory,
+    ]);
+    const { sessionId } = JSON.parse(reduced.stdout[0]!) as {
+      sessionId: string;
+    };
+    const updatePath = join(dataDirectory, 'state-update.json');
+    await writeFile(
+      updatePath,
+      JSON.stringify({
+        schemaVersion: 1,
+        expectedRevision: 0,
+        operations: [
+          { operation: 'set-goal', text: 'Finish Phase 2 safely' },
+          {
+            operation: 'add-fact',
+            category: 'requirement',
+            text: 'Never discard raw evidence',
+          },
+          {
+            operation: 'add-fact',
+            category: 'failure',
+            text: 'Active failure must remain detailed',
+          },
+        ],
+      }),
+    );
+    const applied = await invoke([
+      'state',
+      'apply',
+      updatePath,
+      '--session',
+      sessionId,
+      '--data-dir',
+      dataDirectory,
+    ]);
+    expect(applied.exitCode).toBe(0);
+    expect(JSON.parse(applied.stdout[0]!)).toMatchObject({ revision: 1 });
+
+    const verified = await invoke([
+      'state',
+      'verify',
+      '--session',
+      sessionId,
+      '--data-dir',
+      dataDirectory,
+    ]);
+    expect(verified.exitCode).toBe(0);
+    expect(JSON.parse(verified.stdout[0]!)).toMatchObject({
+      status: 'verified',
+      revision: 1,
+    });
+
+    const assembled = await invoke([
+      'assemble',
+      '--session',
+      sessionId,
+      '--token-budget',
+      '1',
+      '--data-dir',
+      dataDirectory,
+    ]);
+    expect(assembled.exitCode).toBe(2);
+    const context = JSON.parse(assembled.stdout[0]!) as {
+      context: { items: { text: string }[] };
+      manifest: { status: string };
+    };
+    expect(context.manifest.status).toBe('mandatory-overflow');
+    expect(context.context.items.map((item) => item.text)).toEqual(
+      expect.arrayContaining([
+        'Finish Phase 2 safely',
+        'Never discard raw evidence',
+        'Active failure must remain detailed',
+      ]),
+    );
+  });
+
+  it('records structured ripgrep and TypeScript build observations', async () => {
+    const dataDirectory = await temporaryDirectory();
+    const searchPath = join(dataDirectory, 'search.jsonl');
+    await writeFile(
+      searchPath,
+      `${JSON.stringify({
+        type: 'match',
+        data: {
+          path: { text: 'src/index.ts' },
+          lines: { text: 'const value = 1;\n' },
+          line_number: 1,
+          submatches: [{ start: 0, end: 5 }],
+        },
+      })}\n${JSON.stringify({ type: 'summary', data: { stats: { matches: 1 } } })}\n`,
+    );
+    const search = await invoke([
+      'reduce',
+      searchPath,
+      '--type',
+      'search-result',
+      '--tool',
+      'ripgrep',
+      '--format',
+      'json',
+      '--query',
+      'const',
+      '--root',
+      '.',
+      '--exit-code',
+      '0',
+      '--data-dir',
+      dataDirectory,
+    ]);
+    expect(search.exitCode).toBe(0);
+    const { sessionId } = JSON.parse(search.stdout[0]!) as {
+      sessionId: string;
+    };
+
+    const buildPath = join(dataDirectory, 'build.txt');
+    await writeFile(
+      buildPath,
+      'src/index.ts(1,7): error TS2322: Broken assignment.\nFound 1 error.\n',
+    );
+    const build = await invoke([
+      'reduce',
+      buildPath,
+      '--type',
+      'build-result',
+      '--tool',
+      'typescript',
+      '--format',
+      'tsc-pretty-false',
+      '--command',
+      'pnpm typecheck',
+      '--working-directory',
+      '.',
+      '--exit-code',
+      '2',
+      '--session',
+      sessionId,
+      '--data-dir',
+      dataDirectory,
+    ]);
+    expect(build.exitCode).toBe(0);
+    expect(JSON.parse(build.stdout[0]!)).toMatchObject({
+      sequence: 2,
+      reduction: {
+        buildDiagnostics: [{ code: 'TS2322', file: 'src/index.ts' }],
+      },
+    });
+  });
+
+  it('keeps a failing build mandatory even when the context budget is too small', async () => {
+    const dataDirectory = await temporaryDirectory();
+    const buildPath = join(dataDirectory, 'build.txt');
+    await writeFile(
+      buildPath,
+      'src/index.ts(1,7): error TS2322: Broken assignment.\n',
+    );
+    const build = await invoke([
+      'reduce',
+      buildPath,
+      '--type',
+      'build-result',
+      '--tool',
+      'typescript',
+      '--format',
+      'tsc-pretty-false',
+      '--command',
+      'pnpm typecheck',
+      '--working-directory',
+      '.',
+      '--exit-code',
+      '2',
+      '--data-dir',
+      dataDirectory,
+    ]);
+    const { sessionId, eventId } = JSON.parse(build.stdout[0]!) as {
+      sessionId: string;
+      eventId: string;
+    };
+
+    const assembled = await invoke([
+      'assemble',
+      '--session',
+      sessionId,
+      '--token-budget',
+      '1',
+      '--data-dir',
+      dataDirectory,
+    ]);
+    expect(assembled.exitCode).toBe(2);
+    const output = JSON.parse(assembled.stdout[0]!) as {
+      context: { items: { id: string; class: string; text: string }[] };
+      manifest: { status: string };
+    };
+    expect(output.manifest.status).toBe('mandatory-overflow');
+    expect(output.context.items).toContainEqual(
+      expect.objectContaining({
+        id: `event:${eventId}`,
+        class: 'active-failure',
+        text: expect.stringContaining('TS2322'),
+      }),
+    );
+  });
+
+  it('assembles only the newest observation of the same logical file', async () => {
+    const dataDirectory = await temporaryDirectory();
+    const input = join(dataDirectory, 'changing.ts');
+    const base = [
+      'reduce',
+      input,
+      '--type',
+      'file-read',
+      '--path',
+      'src/changing.ts',
+      '--path-kind',
+      'repository-relative',
+      '--scope',
+      'full',
+      '--encoding',
+      'utf-8',
+      '--data-dir',
+      dataDirectory,
+    ];
+    await writeFile(input, 'export const version = "old";\n');
+    const first = JSON.parse((await invoke(base)).stdout[0]!) as {
+      sessionId: string;
+      eventId: string;
+    };
+    await writeFile(input, 'export const version = "new";\n');
+    await invoke([...base, '--session', first.sessionId]);
+
+    const assembled = await invoke([
+      'assemble',
+      '--session',
+      first.sessionId,
+      '--token-budget',
+      '10000',
+      '--data-dir',
+      dataDirectory,
+    ]);
+    const output = JSON.parse(assembled.stdout[0]!) as {
+      context: { items: { text: string }[] };
+      manifest: { excludedCandidates: { id: string; reason: string }[] };
+    };
+    const contextText = output.context.items
+      .map((item) => item.text)
+      .join('\n');
+    expect(contextText).toContain('version = \\"new\\"');
+    expect(contextText).not.toContain('version = \\"old\\"');
+    expect(output.manifest.excludedCandidates).toContainEqual({
+      id: `event:${first.eventId}`,
+      reason: 'superseded',
+    });
+  });
+
+  it('bounds total restored file content across an assembly', async () => {
+    const dataDirectory = await temporaryDirectory();
+    const firstPath = join(dataDirectory, 'first.txt');
+    const secondPath = join(dataDirectory, 'second.txt');
+    await writeFile(firstPath, 'A'.repeat(9000));
+    await writeFile(secondPath, 'B'.repeat(9000));
+    const reduceFile = async (
+      input: string,
+      logicalPath: string,
+      sessionId?: string,
+    ) =>
+      invoke([
+        'reduce',
+        input,
+        '--type',
+        'file-read',
+        '--path',
+        logicalPath,
+        '--path-kind',
+        'repository-relative',
+        '--scope',
+        'full',
+        '--encoding',
+        'utf-8',
+        ...(sessionId ? ['--session', sessionId] : []),
+        '--data-dir',
+        dataDirectory,
+      ]);
+    const first = JSON.parse(
+      (await reduceFile(firstPath, 'first.txt')).stdout[0]!,
+    ) as { sessionId: string };
+    await reduceFile(secondPath, 'second.txt', first.sessionId);
+
+    const assembled = await invoke([
+      'assemble',
+      '--session',
+      first.sessionId,
+      '--token-budget',
+      '4000',
+      '--data-dir',
+      dataDirectory,
+    ]);
+    expect(assembled.exitCode).toBe(0);
+    const output = JSON.parse(assembled.stdout[0]!) as {
+      context: { items: { text: string }[] };
+    };
+    const texts = output.context.items.map((item) => item.text);
+    expect(texts.some((text) => text.includes('B'.repeat(9000)))).toBe(true);
+    expect(
+      texts.some((text) => text.includes('file-read-restoration-required')),
+    ).toBe(true);
+    expect(texts.some((text) => text.includes('A'.repeat(9000)))).toBe(false);
+  });
+
+  it('does not write storage for invalid command-specific options', async () => {
+    const root = await temporaryDirectory();
+    const input = join(root, 'search.jsonl');
+    const storage = join(root, 'storage');
+    await writeFile(input, '{}\n');
+    const invalid = await invoke([
+      'reduce',
+      input,
+      '--type',
+      'search-result',
+      '--tool',
+      'ripgrep',
+      '--format',
+      'wrong',
+      '--query',
+      'value',
+      '--root',
+      '.',
+      '--data-dir',
+      storage,
+    ]);
+    expect(invalid.exitCode).toBe(1);
+    await expect(access(storage)).rejects.toThrow();
+  });
+
+  it('does not store an invalid state-update document', async () => {
+    const dataDirectory = await temporaryDirectory();
+    const input = join(dataDirectory, 'source.ts');
+    await writeFile(input, 'export {};\n');
+    const reduced = await invoke([
+      'reduce',
+      input,
+      '--type',
+      'file-read',
+      '--path',
+      'src/source.ts',
+      '--path-kind',
+      'repository-relative',
+      '--scope',
+      'full',
+      '--encoding',
+      'utf-8',
+      '--data-dir',
+      dataDirectory,
+    ]);
+    const { sessionId } = JSON.parse(reduced.stdout[0]!) as {
+      sessionId: string;
+    };
+    const artifacts = join(dataDirectory, 'artifacts');
+    const before = await readdir(artifacts, { recursive: true });
+    const updatePath = join(dataDirectory, 'invalid-state.json');
+    await writeFile(updatePath, '{');
+
+    const applied = await invoke([
+      'state',
+      'apply',
+      updatePath,
+      '--session',
+      sessionId,
+      '--data-dir',
+      dataDirectory,
+    ]);
+    expect(applied.exitCode).toBe(1);
+    expect(await readdir(artifacts, { recursive: true })).toEqual(before);
   });
 });

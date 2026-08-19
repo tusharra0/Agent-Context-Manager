@@ -8,6 +8,12 @@ import {
   Sha256DigestSchema,
   TestResultObservationV1Schema,
 } from './test-result.js';
+import {
+  BuildResultObservationV1Schema,
+  FileReadObservationV1Schema,
+  SearchResultObservationV1Schema,
+} from './observations.js';
+import { WorkingStateTransitionV1Schema } from './working-state.js';
 
 export const ContextEventKindSchema = z.enum([
   'system',
@@ -51,6 +57,52 @@ export const PersistedContextEventV1Schema = z
   })
   .strict();
 
+const PersistedEventBaseV1Schema = z
+  .object({
+    schemaVersion: z.literal(1),
+    id: EventIdSchema,
+    sessionId: SessionIdSchema,
+    sequence: z.number().int().positive(),
+    createdAt: z.iso.datetime({ offset: true }),
+    rawArtifactUri: ArtifactUriSchema,
+    contentHash: Sha256DigestSchema,
+    byteLength: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const PersistedFileReadEventV1Schema = PersistedEventBaseV1Schema.extend(
+  {
+    kind: z.literal('file_read'),
+    payload: FileReadObservationV1Schema,
+  },
+).strict();
+
+export const PersistedSearchResultEventV1Schema =
+  PersistedEventBaseV1Schema.extend({
+    kind: z.literal('search_result'),
+    payload: SearchResultObservationV1Schema,
+  }).strict();
+
+export const PersistedBuildResultEventV1Schema =
+  PersistedEventBaseV1Schema.extend({
+    kind: z.literal('build_result'),
+    payload: BuildResultObservationV1Schema,
+  }).strict();
+
+export const PersistedStateUpdateEventV1Schema =
+  PersistedEventBaseV1Schema.extend({
+    kind: z.literal('state_update'),
+    payload: WorkingStateTransitionV1Schema,
+  }).strict();
+
+export const PersistedAnyContextEventV1Schema = z.union([
+  PersistedContextEventV1Schema,
+  PersistedFileReadEventV1Schema,
+  PersistedSearchResultEventV1Schema,
+  PersistedBuildResultEventV1Schema,
+  PersistedStateUpdateEventV1Schema,
+]);
+
 export const ReductionRecordSchema = z
   .object({
     sourceEventId: EventIdSchema,
@@ -68,5 +120,8 @@ export type ContextEventKind = z.infer<typeof ContextEventKindSchema>;
 export type ContextEvent = z.infer<typeof ContextEventSchema>;
 export type PersistedContextEventV1 = z.infer<
   typeof PersistedContextEventV1Schema
+>;
+export type PersistedAnyContextEventV1 = z.infer<
+  typeof PersistedAnyContextEventV1Schema
 >;
 export type ReductionRecord = z.infer<typeof ReductionRecordSchema>;

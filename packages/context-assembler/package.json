@@ -1,5 +1,5 @@
 {
-  "name": "@acm/event-store",
+  "name": "@acm/context-assembler",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -12,13 +12,11 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "pretest": "pnpm --filter @acm/core build && pnpm --filter @acm/working-state build && pnpm --filter @acm/event-store build",
+    "pretest": "pnpm --filter @acm/core build",
     "test": "vitest run --pool=forks --maxWorkers=1",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@acm/core": "workspace:*",
-    "@acm/working-state": "workspace:*",
-    "zod": "^4.1.5"
+    "@acm/core": "workspace:*"
   }
 }

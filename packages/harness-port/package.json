@@ -1,5 +1,5 @@
 {
-  "name": "@acm/evaluation",
+  "name": "@acm/harness-port",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -12,14 +12,12 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "pretest": "pnpm --filter @acm/core build && pnpm --filter @acm/context-assembler build",
+    "pretest": "pnpm --filter @acm/core build",
     "test": "vitest run --pool=forks --maxWorkers=1",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@acm/context-assembler": "workspace:*",
     "@acm/core": "workspace:*",
-    "@acm/harness-port": "workspace:*",
     "zod": "^4.1.5"
   }
 }

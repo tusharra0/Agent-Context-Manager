@@ -330,6 +330,8 @@ export type NormalizedAgentActionV1 = z.infer<
   typeof NormalizedAgentActionV1Schema
 >;
 export type RecordedActionV1 = z.infer<typeof RecordedActionV1Schema>;
+export type ConditionEvidenceV1 = z.infer<typeof ConditionEvidenceV1Schema>;
+export type TaskOutcomeV1 = z.infer<typeof TaskOutcomeV1Schema>;
 export type EvaluationResultV1 = z.infer<typeof EvaluationResultV1Schema>;
 export type EvaluationCheckpointResultV1 = z.infer<
   typeof EvaluationCheckpointResultV1Schema

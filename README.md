@@ -6,11 +6,11 @@ It stores a lossless session record outside the model's immediate prompt, reduce
 
 ## Current status
 
-Phases 1, 2, and 3 are implemented. In addition to lossless typed reduction and
-replayable working state, the CLI can run deterministic paired offline
-evaluations. It compares raw and managed context at identical checkpoints and
-reports token estimates, next-action agreement, critical-field preservation,
-repeated work, final outcomes, and failure-driven policy diagnostics.
+Phases 1 through 4 are implemented. In addition to lossless typed reduction,
+replayable working state, and deterministic paired evaluation, Codex and Claude
+Code now run behind one project-owned harness contract. Their streamed text,
+tool activity, usage, completion, interruption, and errors normalize into
+versioned ACM events that can be converted directly into Phase 3 evidence.
 
 ## Requirements
 
@@ -52,6 +52,8 @@ packages/reducers/ Deterministic test, file, search, and build reducers
 packages/working-state/ Pure transitions, invariants, and replay
 packages/context-assembler/ Priority and token-budget context selection
 packages/evaluation/ Offline paired replay, metrics, and policy reports
+packages/harness-port/ Provider-neutral session and event contracts
+packages/vercel-harness/ Isolated AI SDK 7 Codex and Claude Code adapters
 ```
 
 Additional packages should be created when their implementation starts, not merely to mirror a future diagram.
@@ -185,5 +187,19 @@ paths are created exclusively and are never overwritten.
 
 Phase 3 is model- and network-free: its normalized actions and outcomes are
 recorded fixture evidence. The included synthetic fixture validates the
-evaluation machinery and is not an empirical token-saving claim. Phase 4 will
-connect live harness runs to the same evaluation contracts.
+evaluation machinery and is not an empirical token-saving claim.
+
+## Phase 4 harness integration
+
+`@acm/harness-port` owns the stable lifecycle and normalized event schemas.
+`@acm/vercel-harness` is the only package allowed to import the pinned,
+experimental Vercel harness packages. It selects either Codex or Claude Code,
+forwards cancellation with `AbortSignal`, validates JSON tool evidence, and
+keeps additive vendor stream parts visible as diagnostics.
+
+The adapter receives a sandbox provider through dependency injection; it does
+not create hosted infrastructure. All Phase 4 tests therefore run without
+credentials. Phase 5 will add the Vercel Sandbox provider, materialize
+repository fixtures, and perform the first authenticated live smoke runs. At
+that point the user-owned setup is a Vercel account/project with OIDC enabled,
+plus the selected AI Gateway or direct model-provider authentication path.

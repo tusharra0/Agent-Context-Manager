@@ -43,12 +43,12 @@
 
 ## Phase 4: Vercel harness integration
 
-- [ ] Define `AgentHarnessPort`
-- [ ] Add Vercel AI SDK `HarnessAgent` adapter
-- [ ] Normalize Codex events
-- [ ] Normalize Claude Code events
-- [ ] Verify session creation, streaming, interruption, and cleanup
-- [ ] Keep experimental packages isolated
+- [x] Define `AgentHarnessPort`
+- [x] Add Vercel AI SDK `HarnessAgent` adapter
+- [x] Normalize Codex events
+- [x] Normalize Claude Code events
+- [x] Verify session creation, streaming, interruption, and cleanup
+- [x] Keep experimental packages isolated
 
 ## Phase 5: Vercel-hosted evaluation
 

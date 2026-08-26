@@ -1,0 +1,143 @@
+{
+  "schemaVersion": 1,
+  "id": "phase3-passing-fixture",
+  "name": "Offline paired replay passing fixture",
+  "createdAt": "2026-08-26T12:00:00.000Z",
+  "repositoryFixture": {
+    "id": "synthetic-typescript-project",
+    "revision": "fixture-revision-1"
+  },
+  "policyId": "priority-whole-item@1",
+  "tokenEstimatorId": "utf8-bytes-div-4@1",
+  "cases": [
+    {
+      "id": "typescript-error",
+      "task": "Repair the recorded TypeScript error.",
+      "checkpoints": [
+        {
+          "id": "after-build",
+          "throughSequence": 1,
+          "tokenBudget": 1000,
+          "state": {
+            "schemaVersion": 1,
+            "sessionId": "ses_11111111111111111111111111111111",
+            "revision": 0,
+            "throughSequence": 0,
+            "requirements": [],
+            "decisions": [],
+            "files": [],
+            "failures": [],
+            "workItems": [],
+            "updatedAt": "2026-08-26T12:00:00.000Z"
+          },
+          "instructions": [
+            {
+              "id": "task",
+              "text": "Repair the build without weakening type safety."
+            }
+          ],
+          "observations": [
+            {
+              "eventId": "evt_22222222222222222222222222222222",
+              "sequence": 1,
+              "rawText": "TypeScript compiler output with repeated success noise omitted. Error TS2345 on line 7 in src/index.ts.",
+              "contentHash": "c0fe08c56b35427e6a4355468b779d27e431b33ef9b0f1b10687798b8aceba04",
+              "safeForContext": true,
+              "managedCandidate": {
+                "id": "event:evt_22222222222222222222222222222222",
+                "class": "active-failure",
+                "required": true,
+                "sequence": 1,
+                "text": "{\"code\":\"TS2345\",\"line\":7}",
+                "sourceEventIds": ["evt_22222222222222222222222222222222"]
+              }
+            }
+          ],
+          "criticalFields": [
+            {
+              "id": "typescript-line",
+              "category": "build-field",
+              "sourceEventId": "evt_22222222222222222222222222222222",
+              "sourceText": "line 7",
+              "expectedValue": 7,
+              "locator": {
+                "mode": "candidate-json-pointer",
+                "candidateId": "event:evt_22222222222222222222222222222222",
+                "jsonPointer": "/line"
+              }
+            }
+          ],
+          "forcedCompaction": true
+        }
+      ],
+      "rawEvidence": {
+        "condition": "raw",
+        "producer": { "kind": "synthetic" },
+        "checkpointActions": [
+          {
+            "checkpointId": "after-build",
+            "nextAction": {
+              "kind": "edit-file",
+              "name": "apply_patch",
+              "arguments": { "path": "src/index.ts" },
+              "targets": ["src/index.ts"]
+            }
+          }
+        ],
+        "actions": [
+          {
+            "action": {
+              "kind": "edit-file",
+              "name": "apply_patch",
+              "arguments": { "path": "src/index.ts" },
+              "targets": ["src/index.ts"]
+            },
+            "workspaceRevision": "fixture-revision-1"
+          }
+        ],
+        "outcome": {
+          "success": true,
+          "assertions": [{ "id": "tests", "passed": true }]
+        },
+        "inputTokens": 120,
+        "outputTokens": 24,
+        "tokenSource": "recorded-fixture@1",
+        "latencyMs": 100
+      },
+      "managedEvidence": {
+        "condition": "managed",
+        "producer": { "kind": "synthetic" },
+        "checkpointActions": [
+          {
+            "checkpointId": "after-build",
+            "nextAction": {
+              "kind": "edit-file",
+              "name": "apply_patch",
+              "arguments": { "path": "src/index.ts" },
+              "targets": ["src/index.ts"]
+            }
+          }
+        ],
+        "actions": [
+          {
+            "action": {
+              "kind": "edit-file",
+              "name": "apply_patch",
+              "arguments": { "path": "src/index.ts" },
+              "targets": ["src/index.ts"]
+            },
+            "workspaceRevision": "fixture-revision-1"
+          }
+        ],
+        "outcome": {
+          "success": true,
+          "assertions": [{ "id": "tests", "passed": true }]
+        },
+        "inputTokens": 80,
+        "outputTokens": 24,
+        "tokenSource": "recorded-fixture@1",
+        "latencyMs": 90
+      }
+    }
+  ]
+}

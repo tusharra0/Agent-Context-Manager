@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   access,
   mkdtemp,
@@ -33,6 +34,160 @@ afterEach(async () => {
       .splice(0)
       .map((path) => rm(path, { recursive: true, force: true })),
   );
+});
+
+describe('Phase 3 CLI', () => {
+  it('validates and runs an offline paired evaluation with deterministic outputs', async () => {
+    const directory = await temporaryDirectory();
+    const experimentPath = join(directory, 'experiment.json');
+    const resultPath = join(directory, 'result.json');
+    const reportPath = join(directory, 'report.md');
+    const rawText = `build noise ${'x'.repeat(600)} error TS2345 on line 7`;
+    const eventId = `evt_${'2'.repeat(32)}`;
+    const action = {
+      kind: 'edit-file',
+      name: 'apply_patch',
+      arguments: { path: 'src/index.ts' },
+      targets: ['src/index.ts'],
+    };
+    await writeFile(
+      experimentPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        id: 'cli-phase3',
+        name: 'CLI Phase 3 fixture',
+        createdAt: '2026-08-26T12:00:00.000Z',
+        repositoryFixture: {
+          id: 'cli-synthetic-project',
+          revision: 'fixture-revision-1',
+        },
+        policyId: 'priority-whole-item@1',
+        tokenEstimatorId: 'utf8-bytes-div-4@1',
+        cases: [
+          {
+            id: 'build-failure',
+            task: 'Fix the build failure.',
+            checkpoints: [
+              {
+                id: 'after-build',
+                throughSequence: 1,
+                tokenBudget: 1000,
+                state: {
+                  schemaVersion: 1,
+                  sessionId: `ses_${'1'.repeat(32)}`,
+                  revision: 0,
+                  throughSequence: 0,
+                  requirements: [],
+                  decisions: [],
+                  files: [],
+                  failures: [],
+                  workItems: [],
+                  updatedAt: '2026-08-26T12:00:00.000Z',
+                },
+                instructions: [{ id: 'task', text: 'Fix the build.' }],
+                observations: [
+                  {
+                    eventId,
+                    sequence: 1,
+                    rawText,
+                    contentHash: createHash('sha256')
+                      .update(rawText)
+                      .digest('hex'),
+                    safeForContext: true,
+                    managedCandidate: {
+                      id: `event:${eventId}`,
+                      class: 'active-failure',
+                      required: true,
+                      sequence: 1,
+                      text: '{"code":"TS2345","line":7}',
+                      sourceEventIds: [eventId],
+                    },
+                  },
+                ],
+                criticalFields: [
+                  {
+                    id: 'line',
+                    category: 'build-field',
+                    sourceEventId: eventId,
+                    sourceText: 'line 7',
+                    expectedValue: 7,
+                    locator: {
+                      mode: 'candidate-json-pointer',
+                      candidateId: `event:${eventId}`,
+                      jsonPointer: '/line',
+                    },
+                  },
+                ],
+              },
+            ],
+            rawEvidence: {
+              condition: 'raw',
+              producer: { kind: 'synthetic' },
+              checkpointActions: [
+                { checkpointId: 'after-build', nextAction: action },
+              ],
+              actions: [{ action, workspaceRevision: 'rev-1' }],
+              outcome: {
+                success: true,
+                assertions: [{ id: 'tests', passed: true }],
+              },
+            },
+            managedEvidence: {
+              condition: 'managed',
+              producer: { kind: 'synthetic' },
+              checkpointActions: [
+                { checkpointId: 'after-build', nextAction: action },
+              ],
+              actions: [{ action, workspaceRevision: 'rev-1' }],
+              outcome: {
+                success: true,
+                assertions: [{ id: 'tests', passed: true }],
+              },
+            },
+          },
+        ],
+      }),
+    );
+
+    const validated = await invoke(['eval', 'validate', experimentPath]);
+    expect(validated.exitCode).toBe(0);
+    expect(JSON.parse(validated.stdout[0]!)).toEqual({
+      caseCount: 1,
+      checkpointCount: 1,
+      experimentId: 'cli-phase3',
+      valid: true,
+    });
+
+    const evaluated = await invoke([
+      'eval',
+      'run',
+      experimentPath,
+      '--output',
+      resultPath,
+      '--report',
+      reportPath,
+    ]);
+    expect(evaluated.exitCode).toBe(0);
+    expect(JSON.parse(await readFile(resultPath, 'utf8'))).toMatchObject({
+      experimentId: 'cli-phase3',
+      status: 'pass',
+      aggregate: {
+        criticalFieldRecall: 1,
+        exactNextActionAgreementRate: 1,
+      },
+    });
+    expect(await readFile(reportPath, 'utf8')).toContain('Status: **PASS**');
+
+    const repeated = await invoke([
+      'eval',
+      'run',
+      experimentPath,
+      '--output',
+      resultPath,
+    ]);
+    expect(repeated.exitCode).toBe(1);
+    expect(repeated.stderr[0]).toMatch(/exist/u);
+  });
 });
 
 const runtime: CliRuntime = {

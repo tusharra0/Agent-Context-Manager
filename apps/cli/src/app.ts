@@ -7,6 +7,7 @@ import type { CliIo, CliRuntime } from './cli-context.js';
 import { requirePositionals } from './command-options.js';
 import { assembleCommand } from './commands/assemble-command.js';
 import { doctorCommand } from './commands/doctor-command.js';
+import { evalCommand } from './commands/eval-command.js';
 import { inspectCommand } from './commands/inspect-command.js';
 import { reduceCommand } from './commands/reduce-command.js';
 import { restoreCommand } from './commands/restore-command.js';
@@ -37,6 +38,8 @@ Usage:
   acm state apply <update.json> --session <session-id> [--data-dir <path>]
   acm state verify --session <session-id> [--data-dir <path>]
   acm assemble --session <session-id> --token-budget <tokens> [--output <path>] [--data-dir <path>]
+  acm eval validate <experiment.json>
+  acm eval run <experiment.json> [--output <result.json>] [--report <report.md>]
   acm doctor
 
 Reduce options:
@@ -83,6 +86,8 @@ export async function runCli(
           runtime,
           io,
         );
+      case 'eval':
+        return await evalCommand(parsed.positionals, parsed.options, io);
       case 'doctor':
         requirePositionals(
           parsed.positionals,

@@ -6,10 +6,11 @@ It stores a lossless session record outside the model's immediate prompt, reduce
 
 ## Current status
 
-Phases 1 and 2 are implemented. In addition to lossless Vitest reduction, the
-CLI maintains replayable working state, deduplicates exact file reads, reduces
-structured ripgrep and TypeScript output, and assembles context under an
-explicit budget without truncating mandatory facts.
+Phases 1, 2, and 3 are implemented. In addition to lossless typed reduction and
+replayable working state, the CLI can run deterministic paired offline
+evaluations. It compares raw and managed context at identical checkpoints and
+reports token estimates, next-action agreement, critical-field preservation,
+repeated work, final outcomes, and failure-driven policy diagnostics.
 
 ## Requirements
 
@@ -50,6 +51,7 @@ packages/event-store/ Content-addressed artifacts and SQLite metadata
 packages/reducers/ Deterministic test, file, search, and build reducers
 packages/working-state/ Pure transitions, invariants, and replay
 packages/context-assembler/ Priority and token-budget context selection
+packages/evaluation/ Offline paired replay, metrics, and policy reports
 ```
 
 Additional packages should be created when their implementation starts, not merely to mirror a future diagram.
@@ -153,3 +155,35 @@ Assembly exits with code 2 and reports `mandatory-overflow` when required
 context alone exceeds the requested budget. The required context is returned
 whole so callers can raise the budget or choose an explicit policy rather than
 accept silent information loss.
+
+## Phase 3 walkthrough
+
+Validate and run the committed offline paired-replay fixture:
+
+```bash
+pnpm --filter @acm/cli dev -- eval validate \
+  ../../packages/evaluation/test/fixtures/v1/passing-experiment.json
+
+pnpm --filter @acm/cli dev -- eval run \
+  ../../packages/evaluation/test/fixtures/v1/passing-experiment.json \
+  --output evaluation-result.json \
+  --report evaluation-report.md
+```
+
+The evaluator verifies each raw observation's SHA-256 digest and rejects
+future-event leakage or managed provenance that is absent from the raw-visible
+checkpoint. Raw and managed contexts use the same instructions, event cutoff,
+and token estimator. The result records paired token estimates, normalized
+next actions, critical fields, repeated actions under unchanged workspace
+revisions, recorded usage and latency, and externally verified task outcomes.
+
+`eval run` exits with code 2 when it produces a valid result containing a
+policy failure. Examples include a missing critical field, next-action
+divergence, mandatory budget overflow, increased repeated work, or a task that
+succeeds with raw context and fails with managed context. Result and report
+paths are created exclusively and are never overwritten.
+
+Phase 3 is model- and network-free: its normalized actions and outcomes are
+recorded fixture evidence. The included synthetic fixture validates the
+evaluation machinery and is not an empirical token-saving claim. Phase 4 will
+connect live harness runs to the same evaluation contracts.

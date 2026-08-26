@@ -32,12 +32,16 @@ importers:
       '@acm/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@acm/evaluation':
+        specifier: workspace:*
+        version: link:../../packages/evaluation
       '@acm/event-store':
         specifier: workspace:*
         version: link:../../packages/event-store
       '@acm/reducers':
         specifier: workspace:*
         version: link:../../packages/reducers
+
   packages/context-assembler:
     dependencies:
       '@acm/core':
@@ -46,6 +50,18 @@ importers:
 
   packages/core:
     dependencies:
+      zod:
+        specifier: ^4.1.5
+        version: 4.4.3
+
+  packages/evaluation:
+    dependencies:
+      '@acm/context-assembler':
+        specifier: workspace:*
+        version: link:../context-assembler
+      '@acm/core':
+        specifier: workspace:*
+        version: link:../core
       zod:
         specifier: ^4.1.5
         version: 4.4.3

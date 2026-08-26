@@ -33,13 +33,13 @@
 
 ## Phase 3: Offline evaluation
 
-- [ ] Define experiment and result schemas
-- [ ] Replay raw versus managed observations
-- [ ] Measure next-action agreement
-- [ ] Measure critical-field preservation
-- [ ] Measure repeated work
-- [ ] Compare final task outcomes
-- [ ] Generate failure-driven policy reports
+- [x] Define experiment and result schemas
+- [x] Replay raw versus managed observations
+- [x] Measure next-action agreement
+- [x] Measure critical-field preservation
+- [x] Measure repeated work
+- [x] Compare final task outcomes
+- [x] Generate failure-driven policy reports
 
 ## Phase 4: Vercel harness integration
 

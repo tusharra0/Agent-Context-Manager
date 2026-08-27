@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { loadEnvFile } from 'node:process';
 import { TextDecoder } from 'node:util';
 
@@ -77,16 +78,30 @@ async function replacePrivateFile(
   }
 }
 
+export function findLocalVercelEnvironmentFile(
+  startDirectory: string,
+): string | undefined {
+  let directory = resolve(startDirectory);
+  const direct = join(directory, '.env.local');
+  if (existsSync(direct)) return direct;
+
+  while (true) {
+    if (existsSync(join(directory, 'pnpm-workspace.yaml'))) {
+      const workspaceEnvironment = join(directory, '.env.local');
+      return existsSync(workspaceEnvironment)
+        ? workspaceEnvironment
+        : undefined;
+    }
+    const parent = dirname(directory);
+    if (parent === directory) return undefined;
+    directory = parent;
+  }
+}
+
 function loadLocalVercelEnvironment(): void {
   if (process.env.VERCEL_OIDC_TOKEN) return;
-  try {
-    loadEnvFile(resolve('.env.local'));
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      return;
-    }
-    throw error;
-  }
+  const path = findLocalVercelEnvironmentFile(process.cwd());
+  if (path) loadEnvFile(path);
 }
 
 export async function hostedCommand(

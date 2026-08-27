@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import {
   access,
   mkdtemp,
+  mkdir,
   readFile,
   readdir,
   rm,
@@ -15,6 +16,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import type { CliIo, CliRuntime } from './app.js';
 import { runCli } from './app.js';
+import { findLocalVercelEnvironmentFile } from './commands/hosted-command.js';
 
 const fixtureRoot = new URL(
   '../../../packages/reducers/test/fixtures/vitest-json/v1/',
@@ -191,6 +193,18 @@ describe('Phase 3 CLI', () => {
 });
 
 describe('Phase 5 CLI', () => {
+  it('finds repository OIDC credentials from a package working directory', async () => {
+    const directory = await temporaryDirectory();
+    const packageDirectory = join(directory, 'apps', 'cli');
+    await mkdir(packageDirectory, { recursive: true });
+    await writeFile(join(directory, 'pnpm-workspace.yaml'), 'packages: []');
+    await writeFile(join(directory, '.env.local'), 'VERCEL_OIDC_TOKEN=test');
+
+    expect(findLocalVercelEnvironmentFile(packageDirectory)).toBe(
+      join(directory, '.env.local'),
+    );
+  });
+
   it('validates a hosted evaluation plan without contacting Vercel', async () => {
     const directory = await temporaryDirectory();
     const planPath = join(directory, 'hosted-plan.json');

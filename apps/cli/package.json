@@ -10,7 +10,7 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/index.ts",
     "doctor": "tsx src/index.ts doctor",
-    "pretest": "pnpm --filter @acm/core build && pnpm --filter @acm/working-state build && pnpm --filter @acm/context-assembler build && pnpm --filter @acm/event-store build && pnpm --filter @acm/reducers build && pnpm --filter @acm/evaluation build",
+    "pretest": "pnpm --filter @acm/core build && pnpm --filter @acm/working-state build && pnpm --filter @acm/context-assembler build && pnpm --filter @acm/event-store build && pnpm --filter @acm/reducers build && pnpm --filter @acm/evaluation build && pnpm --filter @acm/hosted-evaluation build && pnpm --filter @acm/vercel-harness build",
     "test": "vitest run --pool=forks --maxWorkers=1",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
@@ -19,6 +19,8 @@
     "@acm/context-assembler": "workspace:*",
     "@acm/event-store": "workspace:*",
     "@acm/evaluation": "workspace:*",
-    "@acm/reducers": "workspace:*"
+    "@acm/hosted-evaluation": "workspace:*",
+    "@acm/reducers": "workspace:*",
+    "@acm/vercel-harness": "workspace:*"
   }
 }

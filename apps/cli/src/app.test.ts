@@ -190,6 +190,58 @@ describe('Phase 3 CLI', () => {
   });
 });
 
+describe('Phase 5 CLI', () => {
+  it('validates a hosted evaluation plan without contacting Vercel', async () => {
+    const directory = await temporaryDirectory();
+    const planPath = join(directory, 'hosted-plan.json');
+    const experiment = JSON.parse(
+      await readFile(
+        new URL(
+          '../../../packages/evaluation/test/fixtures/v1/passing-experiment.json',
+          import.meta.url,
+        ),
+        'utf8',
+      ),
+    ) as Record<string, unknown>;
+    const revision = 'a'.repeat(40);
+    experiment.repositoryFixture = {
+      id: 'public-smoke-fixture',
+      revision,
+    };
+    await writeFile(
+      planPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        experiment,
+        fixture: {
+          id: 'public-smoke-fixture',
+          repositoryUrl: 'https://github.com/example/repository.git',
+          revision,
+          setupCommands: [],
+          verificationCommands: [
+            { id: 'smoke', command: 'test -f PHASE5_SMOKE.md' },
+          ],
+        },
+        harness: 'codex',
+        model: 'openai/gpt-5.2-codex',
+        timeoutMs: 900_000,
+      }),
+    );
+
+    const validated = await invoke(['hosted', 'validate', planPath]);
+
+    expect(validated.exitCode).toBe(0);
+    expect(JSON.parse(validated.stdout[0]!)).toEqual({
+      caseCount: 1,
+      experimentId: 'phase3-passing-fixture',
+      fixtureId: 'public-smoke-fixture',
+      harness: 'codex',
+      model: 'openai/gpt-5.2-codex',
+      valid: true,
+    });
+  });
+});
+
 const runtime: CliRuntime = {
   environment: {},
   now: () => new Date('2026-08-18T12:00:00.000Z'),

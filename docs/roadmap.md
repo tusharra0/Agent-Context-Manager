@@ -52,12 +52,12 @@
 
 ## Phase 5: Vercel-hosted evaluation
 
-- [ ] Add Vercel Sandbox adapter
-- [ ] Materialize repository fixtures in isolated sandboxes
-- [ ] Run baseline and managed conditions
-- [ ] Add AI Gateway for selected model-assisted operations
-- [ ] Store sanitized aggregate results
-- [ ] Add a minimal Next.js experiment dashboard
+- [x] Add Vercel Sandbox adapter
+- [x] Materialize repository fixtures in isolated sandboxes
+- [x] Run baseline and managed conditions
+- [x] Add AI Gateway for selected model-assisted operations
+- [x] Store sanitized aggregate results
+- [x] Add a minimal Next.js experiment dashboard
 
 ## Exit criterion for the MVP
 

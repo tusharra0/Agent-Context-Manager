@@ -206,6 +206,36 @@ function renderRawContext(checkpoint: ReplayCheckpointV1): string {
   });
 }
 
+export function prepareEvaluationCheckpointContexts(
+  checkpointInput: ReplayCheckpointV1,
+  estimator: TokenEstimator,
+): {
+  rawContextText: string;
+  managedContextText: string;
+  rawTokenEstimate: number;
+  managedTokenEstimate: number;
+} {
+  const checkpoint = checkpointInput;
+  validateCheckpoint(checkpoint);
+  const rawContextText = renderRawContext(checkpoint);
+  const managed = assembleContext({
+    state: checkpoint.state,
+    pinnedInstructions: checkpoint.instructions,
+    observations: checkpoint.observations.map((observation) => ({
+      candidate: observation.managedCandidate,
+      safeForContext: observation.safeForContext,
+    })),
+    tokenBudget: checkpoint.tokenBudget,
+    tokenEstimator: estimator,
+  });
+  return {
+    rawContextText,
+    managedContextText: managed.contextText,
+    rawTokenEstimate: estimator.estimate(rawContextText),
+    managedTokenEstimate: managed.manifest.assembledTokenEstimate,
+  };
+}
+
 function parseRenderedContext(
   text: string,
 ): Map<string, RenderedContextItemV1> {

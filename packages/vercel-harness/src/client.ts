@@ -1,6 +1,7 @@
 import {
   HarnessAgent,
   type HarnessAgentAdapter,
+  type HarnessAgentSandboxConfig,
   type HarnessAgentSession,
 } from '@ai-sdk/harness/agent';
 import type { HarnessV1SandboxProvider } from '@ai-sdk/harness';
@@ -33,6 +34,7 @@ export interface RealVercelHarnessClientOptions {
   harness: HarnessKind;
   sandbox: HarnessV1SandboxProvider;
   instructions?: string;
+  sandboxConfig?: HarnessAgentSandboxConfig;
   codex?: CodexHarnessSettings;
   claudeCode?: ClaudeCodeHarnessSettings;
 }
@@ -80,6 +82,9 @@ export function createRealVercelHarnessClient(
     ...(options.instructions === undefined
       ? {}
       : { instructions: options.instructions }),
+    ...(options.sandboxConfig === undefined
+      ? {}
+      : { sandboxConfig: options.sandboxConfig }),
   };
 
   if (options.harness === 'codex') {

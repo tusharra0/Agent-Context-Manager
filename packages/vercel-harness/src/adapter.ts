@@ -1,4 +1,5 @@
 import type { HarnessV1SandboxProvider } from '@ai-sdk/harness';
+import type { HarnessAgentSandboxConfig } from '@ai-sdk/harness/agent';
 import type { CodexHarnessSettings } from '@ai-sdk/harness-codex';
 import type { ClaudeCodeHarnessSettings } from '@ai-sdk/harness-claude-code';
 
@@ -37,12 +38,14 @@ export type VercelHarnessPortOptions = SharedVercelHarnessPortOptions &
         clientFactory?: never;
         codex?: CodexHarnessSettings;
         claudeCode?: ClaudeCodeHarnessSettings;
+        sandboxConfig?: HarnessAgentSandboxConfig;
       }
     | {
         clientFactory: VercelHarnessClientFactory;
         sandbox?: never;
         codex?: never;
         claudeCode?: never;
+        sandboxConfig?: never;
       }
   );
 
@@ -103,6 +106,9 @@ export class VercelHarnessPort implements AgentHarnessPort {
         ...(this.options.claudeCode === undefined
           ? {}
           : { claudeCode: this.options.claudeCode }),
+        ...(this.options.sandboxConfig === undefined
+          ? {}
+          : { sandboxConfig: this.options.sandboxConfig }),
       });
     const controller = new AbortController();
     const vendorSession = await client.createSession({

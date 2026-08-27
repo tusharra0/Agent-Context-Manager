@@ -1,0 +1,26 @@
+{
+  "name": "@acm/hosted-evaluation",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "pretest": "pnpm --filter @acm/core build && pnpm --filter @acm/context-assembler build && pnpm --filter @acm/evaluation build && pnpm --filter @acm/harness-port build",
+    "test": "vitest run --pool=forks --maxWorkers=1",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@acm/context-assembler": "workspace:*",
+    "@acm/core": "workspace:*",
+    "@acm/evaluation": "workspace:*",
+    "@acm/harness-port": "workspace:*",
+    "zod": "^4.1.5"
+  }
+}

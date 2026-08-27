@@ -1,0 +1,150 @@
+{
+  "schemaVersion": 1,
+  "experiment": {
+    "schemaVersion": 1,
+    "id": "phase5-vercel-smoke",
+    "name": "Vercel Sandbox paired context smoke test",
+    "createdAt": "2026-08-27T12:00:00.000Z",
+    "repositoryFixture": {
+      "id": "acm-phase4-public",
+      "revision": "40c8c6cedf5c48ed9fa2b667dfdc5cf0b6f20432"
+    },
+    "policyId": "priority-whole-item@1",
+    "tokenEstimatorId": "utf8-bytes-div-4@1",
+    "cases": [
+      {
+        "id": "restore-smoke-requirement",
+        "task": "Complete the remaining smoke-fixture work described in the supplied session context.",
+        "checkpoints": [
+          {
+            "id": "after-setup",
+            "throughSequence": 1,
+            "tokenBudget": 1000,
+            "state": {
+              "schemaVersion": 1,
+              "sessionId": "ses_55555555555555555555555555555555",
+              "revision": 0,
+              "throughSequence": 0,
+              "requirements": [],
+              "decisions": [],
+              "files": [],
+              "failures": [],
+              "workItems": [],
+              "updatedAt": "2026-08-27T12:00:00.000Z"
+            },
+            "instructions": [
+              {
+                "id": "continue-task",
+                "text": "Continue the prior task and verify the requested file."
+              }
+            ],
+            "observations": [
+              {
+                "eventId": "evt_55555555555555555555555555555555",
+                "sequence": 1,
+                "rawText": "Prior session notes: setup completed. setup completed. setup completed. setup completed. setup completed. setup completed. setup completed. setup completed. setup completed. setup completed. User requirement: create PHASE5_SMOKE.md with one line exactly: Phase 5 sandbox evaluation",
+                "contentHash": "539106a0b5559753e3ce54a779584ca5b20ec995d15fc0162cfe9306dacacfae",
+                "safeForContext": true,
+                "managedCandidate": {
+                  "id": "event:evt_55555555555555555555555555555555",
+                  "class": "requirement",
+                  "required": true,
+                  "sequence": 1,
+                  "text": "Create PHASE5_SMOKE.md with one line exactly: Phase 5 sandbox evaluation",
+                  "sourceEventIds": ["evt_55555555555555555555555555555555"]
+                }
+              }
+            ],
+            "criticalFields": [
+              {
+                "id": "smoke-file-requirement",
+                "category": "requirement",
+                "sourceEventId": "evt_55555555555555555555555555555555",
+                "sourceText": "PHASE5_SMOKE.md",
+                "expectedValue": "Create PHASE5_SMOKE.md with one line exactly: Phase 5 sandbox evaluation",
+                "locator": {
+                  "mode": "candidate-text",
+                  "candidateId": "event:evt_55555555555555555555555555555555"
+                }
+              }
+            ],
+            "forcedCompaction": false
+          }
+        ],
+        "rawEvidence": {
+          "condition": "raw",
+          "producer": {
+            "kind": "synthetic"
+          },
+          "checkpointActions": [
+            {
+              "checkpointId": "after-setup",
+              "nextAction": {
+                "kind": "edit-file",
+                "name": "placeholder",
+                "arguments": {},
+                "targets": ["PHASE5_SMOKE.md"]
+              }
+            }
+          ],
+          "actions": [],
+          "outcome": {
+            "success": false,
+            "assertions": [
+              {
+                "id": "placeholder",
+                "passed": false
+              }
+            ]
+          }
+        },
+        "managedEvidence": {
+          "condition": "managed",
+          "producer": {
+            "kind": "synthetic"
+          },
+          "checkpointActions": [
+            {
+              "checkpointId": "after-setup",
+              "nextAction": {
+                "kind": "edit-file",
+                "name": "placeholder",
+                "arguments": {},
+                "targets": ["PHASE5_SMOKE.md"]
+              }
+            }
+          ],
+          "actions": [],
+          "outcome": {
+            "success": false,
+            "assertions": [
+              {
+                "id": "placeholder",
+                "passed": false
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "fixture": {
+    "id": "acm-phase4-public",
+    "repositoryUrl": "https://github.com/tusharra0/Agent-Context-Manager.git",
+    "revision": "40c8c6cedf5c48ed9fa2b667dfdc5cf0b6f20432",
+    "setupCommands": [],
+    "verificationCommands": [
+      {
+        "id": "smoke-file-exists",
+        "command": "test -f PHASE5_SMOKE.md"
+      },
+      {
+        "id": "smoke-file-content",
+        "command": "test \"$(cat PHASE5_SMOKE.md)\" = \"Phase 5 sandbox evaluation\""
+      }
+    ]
+  },
+  "harness": "codex",
+  "model": "gpt-5.5",
+  "timeoutMs": 900000
+}

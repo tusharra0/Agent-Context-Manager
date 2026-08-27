@@ -6,11 +6,13 @@ It stores a lossless session record outside the model's immediate prompt, reduce
 
 ## Current status
 
-Phases 1 through 4 are implemented. In addition to lossless typed reduction,
+Phases 1 through 5 are implemented. In addition to lossless typed reduction,
 replayable working state, and deterministic paired evaluation, Codex and Claude
 Code now run behind one project-owned harness contract. Their streamed text,
 tool activity, usage, completion, interruption, and errors normalize into
 versioned ACM events that can be converted directly into Phase 3 evidence.
+Authenticated hosted runs execute paired conditions in fresh Vercel Sandboxes,
+and a read-only Next.js dashboard accepts only sanitized aggregate results.
 
 ## Requirements
 
@@ -46,6 +48,7 @@ pnpm dev            # run the CLI through tsx
 
 ```text
 apps/cli/          Local command-line entry point
+apps/dashboard/    Read-only sanitized experiment dashboard
 packages/core/     Stable domain schemas and types
 packages/event-store/ Content-addressed artifacts and SQLite metadata
 packages/reducers/ Deterministic test, file, search, and build reducers
@@ -53,6 +56,7 @@ packages/working-state/ Pure transitions, invariants, and replay
 packages/context-assembler/ Priority and token-budget context selection
 packages/evaluation/ Offline paired replay, metrics, and policy reports
 packages/harness-port/ Provider-neutral session and event contracts
+packages/hosted-evaluation/ Hosted plans, orchestration, and sanitization
 packages/vercel-harness/ Isolated AI SDK 7 Codex and Claude Code adapters
 ```
 
@@ -197,9 +201,36 @@ experimental Vercel harness packages. It selects either Codex or Claude Code,
 forwards cancellation with `AbortSignal`, validates JSON tool evidence, and
 keeps additive vendor stream parts visible as diagnostics.
 
-The adapter receives a sandbox provider through dependency injection; it does
-not create hosted infrastructure. All Phase 4 tests therefore run without
-credentials. Phase 5 will add the Vercel Sandbox provider, materialize
-repository fixtures, and perform the first authenticated live smoke runs. At
-that point the user-owned setup is a Vercel account/project with OIDC enabled,
-plus the selected AI Gateway or direct model-provider authentication path.
+The adapter receives a sandbox provider through dependency injection. All
+Phase 4 tests therefore run without credentials; Phase 5 supplies the Vercel
+Sandbox provider behind the same project-owned interface.
+
+## Phase 5 hosted evaluation
+
+Validate a hosted plan without contacting Vercel:
+
+```bash
+pnpm --filter @acm/cli dev -- hosted validate hosted-plan.json
+```
+
+An authenticated run creates a fresh sandbox for each raw and managed
+condition, checks out an exact public Git commit, runs the selected harness
+through AI Gateway, and applies deterministic verification commands:
+
+```bash
+pnpm --filter @acm/cli dev -- hosted run hosted-plan.json \
+  --output private-result.json \
+  --summary sanitized-summary.json \
+  --dashboard-data apps/dashboard/data/results.json
+```
+
+The full result is created exclusively with private file permissions and is
+never read by the dashboard. The dashboard dataset is an explicit allow-list:
+it omits prompts, source, model responses, tool inputs and outputs, normalized
+actions, assertion evidence, and failure details. A policy failure exits with
+code 2 and remains visible in the private result and aggregate status.
+
+Local hosted runs require `vercel login`, a linked Vercel project, and fresh
+OIDC credentials from `vercel env pull`. Deployed Vercel workloads receive
+OIDC automatically. The dashboard itself never starts a sandbox or accepts
+commands, repositories, credentials, or prompts over HTTP.

@@ -45,11 +45,22 @@ export interface HostedConditionRunnerPort {
 }
 
 export function renderHostedConditionPrompt(
-  input: Pick<HostedConditionRunInputV1, 'task' | 'contextText'>,
+  input: Pick<HostedConditionRunInputV1, 'task' | 'contextText' | 'fixture'>,
 ): string {
+  // Absent is empty, matching the fixture schema's own default, so a fixture
+  // that reached this port without being parsed renders a prompt rather than
+  // failing the run partway through.
+  const conventions = input.fixture.commandConventions ?? [];
   return [
     'Complete the coding task in the current repository.',
     'Use the supplied context as prior session state. Verify the result before finishing.',
+    ...(conventions.length === 0
+      ? []
+      : [
+          '',
+          'PROJECT COMMANDS',
+          ...conventions.map((convention) => `- ${convention}`),
+        ]),
     '',
     'TASK',
     input.task,

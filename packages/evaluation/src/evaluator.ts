@@ -564,7 +564,13 @@ function checkpointResult(
       },
     });
   }
-  if (!exactNextActionAgreement) {
+  // A divergence is only attributable to the reduction when the two conditions
+  // were actually given different context. When the checkpoint context is
+  // identical — as it is for a run that reduces per step rather than at a
+  // checkpoint — a different next action is model nondeterminism, and gating on
+  // it would fail runs for a reason the experiment is not testing.
+  const contextsDiffer = rawContextText !== managed.contextText;
+  if (!exactNextActionAgreement && contextsDiffer) {
     failures.push({
       kind: 'next-action-divergence',
       caseId: evaluationCase.id,

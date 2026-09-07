@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 1,
+  "experiment": {
+    "schemaVersion": 1,
+    "id": "phase6-duplicate-test-name-diagnostic",
+    "name": "Flag duplicate test names in a vitest report",
+    "createdAt": "2026-09-07T14:00:00.000Z",
+    "repositoryFixture": {
+      "id": "acm-phase6-duplicate-test-name-diagnostic",
+      "revision": "4931e521de5813fc981841c4c2681e67767813c4"
+    },
+    "policyId": "priority-whole-item@1",
+    "tokenEstimatorId": "utf8-bytes-div-4@1",
+    "cases": [
+      {
+        "id": "duplicate-test-name-diagnostic",
+        "task": "In packages/reducers, parseVitestJson folds passing test names into counts, so two tests in one file sharing a name become indistinguishable in the reduction. Record a diagnostic with code DUPLICATE_TEST_NAME when a file reports the same test name more than once, and add a test for it. Existing counts, failures, and parse statuses must not change for reports without duplicates.",
+        "checkpoints": [
+          {
+            "id": "start",
+            "throughSequence": 0,
+            "tokenBudget": 8000,
+            "state": {
+              "schemaVersion": 1,
+              "sessionId": "ses_66666666666666666666666666666666",
+              "revision": 0,
+              "throughSequence": 0,
+              "requirements": [],
+              "decisions": [],
+              "files": [],
+              "failures": [],
+              "workItems": [],
+              "updatedAt": "2026-09-07T14:00:00.000Z"
+            },
+            "instructions": [
+              {
+                "id": "task",
+                "text": "In packages/reducers, parseVitestJson folds passing test names into counts, so two tests in one file sharing a name become indistinguishable in the reduction. Record a diagnostic with code DUPLICATE_TEST_NAME when a file reports the same test name more than once, and add a test for it. Existing counts, failures, and parse statuses must not change for reports without duplicates."
+              }
+            ],
+            "observations": [],
+            "criticalFields": [],
+            "forcedCompaction": false
+          }
+        ],
+        "rawEvidence": {
+          "condition": "raw",
+          "producer": {
+            "kind": "synthetic"
+          },
+          "checkpointActions": [
+            {
+              "checkpointId": "start",
+              "nextAction": {
+                "kind": "other",
+                "name": "placeholder",
+                "arguments": {},
+                "targets": []
+              }
+            }
+          ],
+          "actions": [],
+          "outcome": {
+            "success": false,
+            "assertions": [
+              {
+                "id": "placeholder",
+                "passed": false
+              }
+            ]
+          }
+        },
+        "managedEvidence": {
+          "condition": "managed",
+          "producer": {
+            "kind": "synthetic"
+          },
+          "checkpointActions": [
+            {
+              "checkpointId": "start",
+              "nextAction": {
+                "kind": "other",
+                "name": "placeholder",
+                "arguments": {},
+                "targets": []
+              }
+            }
+          ],
+          "actions": [],
+          "outcome": {
+            "success": false,
+            "assertions": [
+              {
+                "id": "placeholder",
+                "passed": false
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "fixture": {
+    "id": "acm-phase6-duplicate-test-name-diagnostic",
+    "repositoryUrl": "https://github.com/tusharra0/Agent-Context-Manager.git",
+    "revision": "4931e521de5813fc981841c4c2681e67767813c4",
+    "setupCommands": [
+      "pnpm install --frozen-lockfile",
+      "command -v rg >/dev/null 2>&1 || apt-get install -y -qq ripgrep >/dev/null 2>&1 || echo \"acm: ripgrep unavailable; searches will not reduce\""
+    ],
+    "commandConventions": [
+      "Install dependencies with `pnpm install --frozen-lockfile`.",
+      "Run one package's tests with `pnpm --filter <package> exec vitest run src --reporter=json`.",
+      "Type-check with `pnpm --filter <package> exec tsc -p tsconfig.json --noEmit --pretty false`.",
+      "Search the repository with `rg` when it is available."
+    ],
+    "verificationCommands": [
+      {
+        "id": "code-added",
+        "command": "grep -rq 'DUPLICATE_TEST_NAME' packages/reducers/src"
+      },
+      {
+        "id": "behavior-tested",
+        "command": "grep -rq 'DUPLICATE_TEST_NAME' packages/reducers/src/vitest-json-parser.test.ts"
+      },
+      {
+        "id": "package-tests-pass",
+        "command": "pnpm --filter @acm/reducers exec vitest run src"
+      },
+      {
+        "id": "types-clean",
+        "command": "pnpm --filter @acm/reducers exec tsc -p tsconfig.json --noEmit --pretty false"
+      }
+    ]
+  },
+  "harness": "claude-code",
+  "model": "anthropic/claude-sonnet-5",
+  "contextSource": "recorded-candidates",
+  "observationInterception": "per-step",
+  "timeoutMs": 2400000
+}

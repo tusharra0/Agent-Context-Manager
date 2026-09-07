@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 1,
+  "experiment": {
+    "schemaVersion": 1,
+    "id": "phase6-assembler-duplicate-read-count",
+    "name": "Report duplicate reads on the assembly manifest",
+    "createdAt": "2026-09-07T14:00:00.000Z",
+    "repositoryFixture": {
+      "id": "acm-phase6-assembler-duplicate-read-count",
+      "revision": "4931e521de5813fc981841c4c2681e67767813c4"
+    },
+    "policyId": "priority-whole-item@1",
+    "tokenEstimatorId": "utf8-bytes-div-4@1",
+    "cases": [
+      {
+        "id": "assembler-duplicate-read-count",
+        "task": "In packages/context-assembler, report how many observations were excluded because they repeated an earlier read. Expose the number on the assembly manifest as duplicateReadCount, leave every existing manifest field unchanged, and add a test that asserts the count for a checkpoint containing a repeated read.",
+        "checkpoints": [
+          {
+            "id": "start",
+            "throughSequence": 0,
+            "tokenBudget": 8000,
+            "state": {
+              "schemaVersion": 1,
+              "sessionId": "ses_66666666666666666666666666666666",
+              "revision": 0,
+              "throughSequence": 0,
+              "requirements": [],
+              "decisions": [],
+              "files": [],
+              "failures": [],
+              "workItems": [],
+              "updatedAt": "2026-09-07T14:00:00.000Z"
+            },
+            "instructions": [
+              {
+                "id": "task",
+                "text": "In packages/context-assembler, report how many observations were excluded because they repeated an earlier read. Expose the number on the assembly manifest as duplicateReadCount, leave every existing manifest field unchanged, and add a test that asserts the count for a checkpoint containing a repeated read."
+              }
+            ],
+            "observations": [],
+            "criticalFields": [],
+            "forcedCompaction": false
+          }
+        ],
+        "rawEvidence": {
+          "condition": "raw",
+          "producer": {
+            "kind": "synthetic"
+          },
+          "checkpointActions": [
+            {
+              "checkpointId": "start",
+              "nextAction": {
+                "kind": "other",
+                "name": "placeholder",
+                "arguments": {},
+                "targets": []
+              }
+            }
+          ],
+          "actions": [],
+          "outcome": {
+            "success": false,
+            "assertions": [
+              {
+                "id": "placeholder",
+                "passed": false
+              }
+            ]
+          }
+        },
+        "managedEvidence": {
+          "condition": "managed",
+          "producer": {
+            "kind": "synthetic"
+          },
+          "checkpointActions": [
+            {
+              "checkpointId": "start",
+              "nextAction": {
+                "kind": "other",
+                "name": "placeholder",
+                "arguments": {},
+                "targets": []
+              }
+            }
+          ],
+          "actions": [],
+          "outcome": {
+            "success": false,
+            "assertions": [
+              {
+                "id": "placeholder",
+                "passed": false
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "fixture": {
+    "id": "acm-phase6-assembler-duplicate-read-count",
+    "repositoryUrl": "https://github.com/tusharra0/Agent-Context-Manager.git",
+    "revision": "4931e521de5813fc981841c4c2681e67767813c4",
+    "setupCommands": [
+      "pnpm install --frozen-lockfile",
+      "command -v rg >/dev/null 2>&1 || apt-get install -y -qq ripgrep >/dev/null 2>&1 || echo \"acm: ripgrep unavailable; searches will not reduce\""
+    ],
+    "commandConventions": [
+      "Install dependencies with `pnpm install --frozen-lockfile`.",
+      "Run one package's tests with `pnpm --filter <package> exec vitest run src --reporter=json`.",
+      "Type-check with `pnpm --filter <package> exec tsc -p tsconfig.json --noEmit --pretty false`.",
+      "Search the repository with `rg` when it is available."
+    ],
+    "verificationCommands": [
+      {
+        "id": "count-exposed",
+        "command": "grep -rq 'duplicateReadCount' packages/context-assembler/src"
+      },
+      {
+        "id": "behavior-tested",
+        "command": "grep -rq 'duplicateReadCount' packages/context-assembler/src/assembler.test.ts"
+      },
+      {
+        "id": "package-tests-pass",
+        "command": "pnpm --filter @acm/context-assembler exec vitest run src"
+      },
+      {
+        "id": "core-tests-pass",
+        "command": "pnpm --filter @acm/core exec vitest run src"
+      }
+    ]
+  },
+  "harness": "claude-code",
+  "model": "anthropic/claude-sonnet-5",
+  "contextSource": "recorded-candidates",
+  "observationInterception": "per-step",
+  "timeoutMs": 2400000
+}

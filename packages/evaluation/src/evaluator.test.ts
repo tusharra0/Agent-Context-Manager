@@ -587,3 +587,105 @@ describe('observation aggregate', () => {
     ).toBe(500);
   });
 });
+
+describe('next-action divergence attribution', () => {
+  /**
+   * A checkpoint with no observations renders identical raw and managed
+   * context, which is what a run that reduces per step rather than at a
+   * checkpoint produces.
+   */
+  function identicalContexts(): EvaluationExperimentV1 {
+    const input = experiment();
+    const evaluationCase = input.cases[0]!;
+    const checkpoint = evaluationCase.checkpoints[0]!;
+    return {
+      ...input,
+      cases: [
+        {
+          ...evaluationCase,
+          checkpoints: [
+            {
+              ...checkpoint,
+              observations: [],
+              criticalFields: [],
+              // State provenance cites the observations just removed, so the
+              // checkpoint carries no recalled state either.
+              state: {
+                schemaVersion: 1,
+                sessionId: SESSION,
+                revision: 0,
+                throughSequence: 0,
+                requirements: [],
+                decisions: [],
+                files: [],
+                failures: [],
+                workItems: [],
+                updatedAt: checkpoint.state.updatedAt,
+              },
+            },
+          ],
+          managedEvidence: {
+            ...evaluationCase.managedEvidence,
+            checkpointActions:
+              evaluationCase.managedEvidence.checkpointActions.map((entry) => ({
+                ...entry,
+                nextAction: {
+                  kind: 'read-file' as const,
+                  name: 'read',
+                  arguments: { path: 'src/other.ts' },
+                  targets: ['src/other.ts'],
+                },
+              })),
+          },
+        },
+      ],
+    };
+  }
+
+  it('does not blame the reduction when both conditions saw the same context', () => {
+    const result = evaluateExperiment(identicalContexts(), ESTIMATOR);
+    const checkpoint = result.cases[0]!.checkpointResults[0]!;
+
+    // The disagreement is still reported...
+    expect(checkpoint.exactNextActionAgreement).toBe(false);
+    // ...but it is model nondeterminism, not an effect of the reduction.
+    expect(
+      result.policyFailures.filter(
+        (failure) => failure.kind === 'next-action-divergence',
+      ),
+    ).toEqual([]);
+    expect(result.status).toBe('pass');
+  });
+
+  it('still blames a divergence when the managed context actually differed', () => {
+    const input = experiment();
+    const evaluationCase = input.cases[0]!;
+    const diverging: EvaluationExperimentV1 = {
+      ...input,
+      cases: [
+        {
+          ...evaluationCase,
+          managedEvidence: {
+            ...evaluationCase.managedEvidence,
+            checkpointActions:
+              evaluationCase.managedEvidence.checkpointActions.map((entry) => ({
+                ...entry,
+                nextAction: {
+                  kind: 'read-file' as const,
+                  name: 'read',
+                  arguments: { path: 'src/other.ts' },
+                  targets: ['src/other.ts'],
+                },
+              })),
+          },
+        },
+      ],
+    };
+
+    expect(
+      evaluateExperiment(diverging, ESTIMATOR).policyFailures.map(
+        (failure) => failure.kind,
+      ),
+    ).toContain('next-action-divergence');
+  });
+});

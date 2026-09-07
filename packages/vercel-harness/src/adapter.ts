@@ -3,6 +3,7 @@ import type { HarnessAgentSandboxConfig } from '@ai-sdk/harness/agent';
 import type { CodexHarnessSettings } from '@ai-sdk/harness-codex';
 import type { ClaudeCodeHarnessSettings } from '@ai-sdk/harness-claude-code';
 
+import type { ObservationInterceptor } from '@acm/harness-port';
 import {
   CreateHarnessSessionInputV1Schema,
   ManagedAgentHarnessSession,
@@ -21,7 +22,12 @@ import {
   type VercelHarnessClient,
   type VercelHarnessSessionHandle,
 } from './client.js';
-import { normalizeVercelStreamPart } from './normalizer.js';
+import { createVercelStreamNormalizer } from './normalizer.js';
+import {
+  ObservationToolSession,
+  createObservationTools,
+  type ObservationToolName,
+} from './observation-tools.js';
 
 export type VercelHarnessClientFactory = (
   input: CreateHarnessSessionInputV1,
@@ -32,6 +38,37 @@ interface SharedVercelHarnessPortOptions {
   now?: () => Date;
 }
 
+/**
+ * Puts ACM on the per-step context path by shadowing the harness's own builtin
+ * tools with host-executed ones. What the interceptor returns is what the
+ * harness writes into the agent's transcript, so the reduction is present in
+ * every later model request rather than only the first.
+ */
+export interface VercelObservationOptions {
+  readonly interceptor: ObservationInterceptor;
+  /** Which builtins to override. Defaults to every supported tool. */
+  readonly tools?: readonly ObservationToolName[];
+}
+
+/**
+ * Composes the sandbox configuration the observation tools need.
+ *
+ * The live session only exists once the harness has acquired it, and any
+ * caller-supplied `onSession` still runs afterwards.
+ */
+export function createObservationSandboxConfig(
+  base: HarnessAgentSandboxConfig | undefined,
+  session: ObservationToolSession,
+): HarnessAgentSandboxConfig {
+  return {
+    ...base,
+    async onSession(options) {
+      session.attach(options.session, options.sessionWorkDir);
+      await base?.onSession?.(options);
+    },
+  };
+}
+
 export type VercelHarnessPortOptions = SharedVercelHarnessPortOptions &
   (
     | {
@@ -40,6 +77,7 @@ export type VercelHarnessPortOptions = SharedVercelHarnessPortOptions &
         codex?: CodexHarnessSettings;
         claudeCode?: ClaudeCodeHarnessSettings;
         sandboxConfig?: HarnessAgentSandboxConfig;
+        observation?: VercelObservationOptions;
       }
     | {
         clientFactory: VercelHarnessClientFactory;
@@ -47,6 +85,7 @@ export type VercelHarnessPortOptions = SharedVercelHarnessPortOptions &
         codex?: never;
         claudeCode?: never;
         sandboxConfig?: never;
+        observation?: never;
       }
   );
 
@@ -57,6 +96,7 @@ class VercelHarnessDriver implements HarnessSessionDriver {
   constructor(
     private readonly client: VercelHarnessClient,
     private readonly session: VercelHarnessSessionHandle,
+    private readonly observationSession?: ObservationToolSession,
   ) {
     this.vendorSessionId = session.sessionId;
   }
@@ -70,13 +110,17 @@ class VercelHarnessDriver implements HarnessSessionDriver {
       prompt: input.prompt,
       abortSignal: signal,
     });
+    // One normalizer per turn: step indices are turn-scoped.
+    const normalize = createVercelStreamNormalizer();
     for await (const part of stream) {
-      for (const event of normalizeVercelStreamPart(part)) yield event;
+      for (const event of normalize(part)) yield event;
     }
   }
 
   async destroy(): Promise<void> {
     if (this.destroyed) return;
+    // Detached first: a tool must never reach a sandbox that is going away.
+    this.observationSession?.detach();
     await this.session.destroy();
     this.destroyed = true;
   }
@@ -95,6 +139,17 @@ export class VercelHarnessPort implements AgentHarnessPort {
   ): Promise<AgentHarnessSession> {
     execution.abortSignal?.throwIfAborted();
     const parsedInput = CreateHarnessSessionInputV1Schema.parse(input);
+    const observation = this.options.observation;
+    // One holder per session: a tool call must reach its own sandbox.
+    const observationSession =
+      observation === undefined ? undefined : new ObservationToolSession();
+    const sandboxConfig =
+      observationSession === undefined
+        ? this.options.sandboxConfig
+        : createObservationSandboxConfig(
+            this.options.sandboxConfig,
+            observationSession,
+          );
     const client =
       this.options.clientFactory?.(parsedInput) ??
       createRealVercelHarnessClient({
@@ -109,9 +164,18 @@ export class VercelHarnessPort implements AgentHarnessPort {
         ...(this.options.claudeCode === undefined
           ? {}
           : { claudeCode: this.options.claudeCode }),
-        ...(this.options.sandboxConfig === undefined
+        ...(sandboxConfig === undefined ? {} : { sandboxConfig }),
+        ...(observation === undefined || observationSession === undefined
           ? {}
-          : { sandboxConfig: this.options.sandboxConfig }),
+          : {
+              tools: createObservationTools({
+                interceptor: observation.interceptor,
+                target: observationSession.resolve,
+                ...(observation.tools === undefined
+                  ? {}
+                  : { tools: observation.tools }),
+              }),
+            }),
       });
     const vendorSession = await client.createSession({
       sessionId: parsedInput.sessionId,
@@ -119,7 +183,11 @@ export class VercelHarnessPort implements AgentHarnessPort {
         ? {}
         : { abortSignal: execution.abortSignal }),
     });
-    const driver = new VercelHarnessDriver(client, vendorSession);
+    const driver = new VercelHarnessDriver(
+      client,
+      vendorSession,
+      observationSession,
+    );
     try {
       execution.abortSignal?.throwIfAborted();
       return new ManagedAgentHarnessSession(driver, {

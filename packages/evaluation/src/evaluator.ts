@@ -13,6 +13,7 @@ import {
 import type { TokenEstimator } from '@acm/context-assembler';
 import { z } from 'zod';
 
+import { round } from './numbers.js';
 import {
   EvaluationExperimentV1Schema,
   EvaluationResultV1Schema,
@@ -45,10 +46,6 @@ type RenderedContextItemV1 = z.infer<typeof RenderedContextItemV1Schema>;
 
 function digest(text: string): string {
   return createHash('sha256').update(text, 'utf8').digest('hex');
-}
-
-function round(value: number): number {
-  return Math.round(value * 1_000_000) / 1_000_000;
 }
 
 function unique<T>(values: readonly T[], label: string): void {

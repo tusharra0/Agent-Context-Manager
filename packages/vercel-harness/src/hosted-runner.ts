@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { createVercelSandbox } from '@ai-sdk/sandbox-vercel';
 import type { HarnessV1SandboxProvider } from '@ai-sdk/harness';
 
-import { JsonValueSchema, createSessionId } from '@acm/core';
+import { JsonValueSchema, createSessionId, type SessionId } from '@acm/core';
 import {
   PublicGitFixtureV1Schema,
   renderHostedConditionPrompt,
@@ -12,9 +12,19 @@ import {
   type HostedConditionRunnerPort,
   type PublicGitFixtureV1,
 } from '@acm/hosted-evaluation';
-import type { AgentHarnessPort, HarnessEventV1 } from '@acm/harness-port';
+import type {
+  AgentHarnessPort,
+  HarnessEventV1,
+  HarnessKind,
+  ObservationInterceptor,
+} from '@acm/harness-port';
 
-import { VercelHarnessPort, type VercelHarnessPortOptions } from './adapter.js';
+import {
+  VercelHarnessPort,
+  type VercelHarnessPortOptions,
+  type VercelObservationOptions,
+} from './adapter.js';
+import { OBSERVATION_TOOLS_BY_HARNESS } from './observation-tools.js';
 
 export interface SandboxCommandSession {
   run(options: {
@@ -27,6 +37,12 @@ export interface SandboxCommandSession {
 
 type CommandPhase = 'fixture' | 'setup' | 'verification' | 'workspace-revision';
 
+export interface ObservationInterceptorRequest {
+  readonly condition: HostedConditionRunInputV1['condition'];
+  readonly harness: HarnessKind;
+  readonly sessionId: SessionId;
+}
+
 export interface VercelHostedConditionRunnerDependencies {
   createSandbox(options: {
     runtime: 'node24';
@@ -34,7 +50,32 @@ export interface VercelHostedConditionRunnerDependencies {
     timeout: number;
   }): HarnessV1SandboxProvider;
   createPort(options: VercelHarnessPortOptions): AgentHarnessPort;
+  /**
+   * Builds the per-step observation interceptor for one condition.
+   *
+   * Omitting it, or returning `undefined`, leaves the harness's own builtin
+   * tools in place: the run then only reduces the checkpoint context it is
+   * given, which is the behavior this slice exists to move past.
+   */
+  createObservationInterceptor?(
+    request: ObservationInterceptorRequest,
+  ): ObservationInterceptor | undefined;
 }
+
+/**
+ * The observation policy each condition must use.
+ *
+ * Enforced rather than trusted: a baseline that quietly reduced its own
+ * observations would make every paired comparison meaningless, and the mistake
+ * would not be visible in the result.
+ */
+const REQUIRED_OBSERVATION_POLICY = {
+  raw: 'raw',
+  managed: 'reduced',
+} as const satisfies Record<
+  HostedConditionRunInputV1['condition'],
+  ObservationInterceptor['policy']
+>;
 
 const DEFAULT_DEPENDENCIES: VercelHostedConditionRunnerDependencies = {
   createSandbox: (options) => createVercelSandbox(options),
@@ -220,11 +261,35 @@ export class VercelHostedConditionRunner implements HostedConditionRunnerPort {
     private readonly dependencies: VercelHostedConditionRunnerDependencies = DEFAULT_DEPENDENCIES,
   ) {}
 
+  private observationFor(
+    input: HostedConditionRunInputV1,
+    sessionId: SessionId,
+  ): VercelObservationOptions | undefined {
+    const interceptor = this.dependencies.createObservationInterceptor?.({
+      condition: input.condition,
+      harness: input.harness,
+      sessionId,
+    });
+    if (interceptor === undefined) return undefined;
+    const required = REQUIRED_OBSERVATION_POLICY[input.condition];
+    if (interceptor.policy !== required) {
+      throw new Error(
+        `The ${input.condition} condition requires the ${required} observation policy but received ${interceptor.policy}.`,
+      );
+    }
+    return {
+      interceptor,
+      tools: OBSERVATION_TOOLS_BY_HARNESS[input.harness],
+    };
+  }
+
   async runCondition(
     input: HostedConditionRunInputV1,
   ): Promise<HostedConditionRunOutputV1> {
     const startedAt = performance.now();
     const signal = timeoutSignal(input.timeoutMs);
+    const sessionId = createSessionId();
+    const observation = this.observationFor(input, sessionId);
     let sandboxSession: SandboxCommandSession | undefined;
     let sandboxWorkDir: string | undefined;
     const sandbox = this.dependencies.createSandbox({
@@ -254,18 +319,20 @@ export class VercelHostedConditionRunner implements HostedConditionRunnerPort {
             sandbox,
             codex: { auth: 'ai-gateway', model: input.model },
             sandboxConfig,
+            ...(observation === undefined ? {} : { observation }),
           }
         : {
             harness: 'claude-code',
             sandbox,
             claudeCode: { auth: 'ai-gateway', model: input.model },
             sandboxConfig,
+            ...(observation === undefined ? {} : { observation }),
           };
     const port = this.dependencies.createPort(portOptions);
     const session = await port.createSession(
       {
         schemaVersion: 1,
-        sessionId: createSessionId(),
+        sessionId,
         instructions:
           'Work only in the current repository. Preserve existing behavior outside the requested task and verify changes before finishing.',
       },

@@ -148,6 +148,42 @@ export const TaskOutcomeV1Schema = z
     }
   });
 
+/**
+ * One model request inside a run. `stepIndex` is session-global and 1-based so
+ * a curve can be read across turn boundaries; `turnIndex` keeps the originating
+ * turn visible.
+ */
+export const UsageCurveStepV1Schema = z
+  .object({
+    stepIndex: z.number().int().positive(),
+    turnIndex: z.number().int().positive(),
+    inputTokens: z.number().int().nonnegative(),
+    outputTokens: z.number().int().nonnegative(),
+    cachedInputTokens: z.number().int().nonnegative().nullable(),
+  })
+  .strict();
+
+/**
+ * Per-step input growth for one condition.
+ *
+ * A turn total cannot separate a one-time prefix saving from a saving that
+ * compounds: both appear as a single smaller number. The slope of input tokens
+ * against step index does separate them, which is why a curve is recorded
+ * whenever every completed turn reported usage for every one of its steps.
+ */
+export const ConditionUsageCurveV1Schema = z
+  .object({
+    steps: z.array(UsageCurveStepV1Schema).min(1),
+    stepCount: z.number().int().positive(),
+    totalInputTokens: z.number().int().nonnegative(),
+    peakInputTokens: z.number().int().nonnegative(),
+    finalInputTokens: z.number().int().nonnegative(),
+    meanInputTokens: z.number().nonnegative(),
+    /** Least-squares slope of input tokens over step index; null below two steps. */
+    inputTokenSlopePerStep: z.number().nullable(),
+  })
+  .strict();
+
 export const ConditionEvidenceV1Schema = z
   .object({
     condition: EvaluationConditionSchema,
@@ -167,6 +203,7 @@ export const ConditionEvidenceV1Schema = z
     tokenSource: z.string().min(1).optional(),
     latencyMs: z.number().nonnegative().optional(),
     costUsd: z.number().nonnegative().optional(),
+    usageCurve: ConditionUsageCurveV1Schema.optional(),
   })
   .strict();
 
@@ -177,6 +214,7 @@ export const ConditionMeasurementsV1Schema = z
     tokenSource: z.string().min(1).optional(),
     latencyMs: z.number().nonnegative().optional(),
     costUsd: z.number().nonnegative().optional(),
+    usageCurve: ConditionUsageCurveV1Schema.optional(),
   })
   .strict();
 
@@ -338,6 +376,8 @@ export type NormalizedAgentActionV1 = z.infer<
 >;
 export type RecordedActionV1 = z.infer<typeof RecordedActionV1Schema>;
 export type ConditionEvidenceV1 = z.infer<typeof ConditionEvidenceV1Schema>;
+export type UsageCurveStepV1 = z.infer<typeof UsageCurveStepV1Schema>;
+export type ConditionUsageCurveV1 = z.infer<typeof ConditionUsageCurveV1Schema>;
 export type TaskOutcomeV1 = z.infer<typeof TaskOutcomeV1Schema>;
 export type EvaluationResultV1 = z.infer<typeof EvaluationResultV1Schema>;
 export type EvaluationCheckpointResultV1 = z.infer<

@@ -59,6 +59,18 @@
 - [x] Store sanitized aggregate results
 - [x] Add a minimal Next.js experiment dashboard
 
+## Phase 6: Continuous per-step context control
+
+- [x] Record per-request usage and an input-token curve
+- [x] Define a provider-neutral observation-interception contract
+- [x] Reduce observations behind deterministic safety gates
+- [x] Override harness builtin tools with host-executed ones
+- [x] Run both conditions through one interception path
+- [ ] Add long-horizon fixtures with repeated reads, searches, and failures
+- [ ] Select per-step interception from a hosted plan
+- [ ] Report the reducible share alongside measured reduction
+- [ ] Spike a model-facing proxy for the harness preamble
+
 ## Exit criterion for the MVP
 
 Demonstrate meaningful median input-token reduction on a defined coding-task suite without a statistically meaningful task-success regression, while maintaining extremely high recall for user requirements, active failures, modified files, and remaining work.

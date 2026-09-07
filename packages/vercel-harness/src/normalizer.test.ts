@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { normalizeVercelStreamPart } from './normalizer.js';
+import {
+  createVercelStreamNormalizer,
+  normalizeVercelStreamPart,
+} from './normalizer.js';
 
 describe('normalizeVercelStreamPart', () => {
   it('normalizes text, reasoning, tool calls, and results', () => {
@@ -190,5 +193,76 @@ describe('normalizeVercelStreamPart', () => {
         code: 'invalid-tool-call',
       }),
     ]);
+  });
+});
+
+describe('createVercelStreamNormalizer', () => {
+  it('numbers step usage in arrival order and restarts per normalizer', () => {
+    const normalize = createVercelStreamNormalizer();
+    expect(
+      normalize({
+        type: 'finish-step',
+        usage: { inputTokens: 100, outputTokens: 10, totalTokens: 110 },
+      }),
+    ).toEqual([
+      {
+        kind: 'step-usage',
+        stepIndex: 1,
+        inputTokens: 100,
+        outputTokens: 10,
+        totalTokens: 110,
+        details: { inputTokens: 100, outputTokens: 10, totalTokens: 110 },
+      },
+    ]);
+    expect(
+      normalize({
+        type: 'finish-step',
+        usage: {
+          inputTokens: 220,
+          outputTokens: 8,
+          totalTokens: 228,
+          cachedInputTokens: 96,
+        },
+      })[0],
+    ).toMatchObject({
+      kind: 'step-usage',
+      stepIndex: 2,
+      inputTokens: 220,
+      cachedInputTokens: 96,
+    });
+
+    expect(
+      createVercelStreamNormalizer()({
+        type: 'finish-step',
+        usage: { inputTokens: 5, outputTokens: 1, totalTokens: 6 },
+      })[0],
+    ).toMatchObject({ kind: 'step-usage', stepIndex: 1 });
+  });
+
+  it('delegates every other part to the pure normalizer', () => {
+    const normalize = createVercelStreamNormalizer();
+    expect(normalize({ type: 'text-delta', id: 't1', text: 'hi' })).toEqual(
+      normalizeVercelStreamPart({ type: 'text-delta', id: 't1', text: 'hi' }),
+    );
+    expect(normalize({ type: 'start-step' })).toEqual([]);
+  });
+
+  it('reports an incomplete step as a diagnostic rather than a zero', () => {
+    const normalize = createVercelStreamNormalizer();
+    expect(
+      normalize({ type: 'finish-step', usage: { outputTokens: 4 } }),
+    ).toEqual([
+      expect.objectContaining({
+        kind: 'diagnostic',
+        code: 'step-usage-unavailable',
+      }),
+    ]);
+    // A rejected step still consumes its index, so later steps stay aligned.
+    expect(
+      normalize({
+        type: 'finish-step',
+        usage: { inputTokens: 7, outputTokens: 1, totalTokens: 8 },
+      })[0],
+    ).toMatchObject({ kind: 'step-usage', stepIndex: 2 });
   });
 });

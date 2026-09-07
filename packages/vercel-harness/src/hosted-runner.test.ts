@@ -27,6 +27,7 @@ const FIXTURE: PublicGitFixtureV1 = {
   repositoryUrl: 'https://github.com/example/repository.git',
   revision: 'a'.repeat(40),
   setupCommands: ['pnpm install --frozen-lockfile'],
+  commandConventions: [],
   verificationCommands: [{ id: 'tests', command: 'pnpm test' }],
 };
 

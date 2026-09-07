@@ -10,6 +10,7 @@ import type { HarnessEventV1 } from '@acm/harness-port';
 import experimentFixture from '../../evaluation/test/fixtures/v1/passing-experiment.json' with { type: 'json' };
 
 import {
+  renderHostedConditionPrompt,
   type HostedConditionRunInputV1,
   type HostedConditionRunnerPort,
   runHostedEvaluationPlan,
@@ -144,5 +145,57 @@ describe('runHostedEvaluationPlan', () => {
         },
       }),
     ).toThrow('exactly one checkpoint');
+  });
+});
+
+describe('renderHostedConditionPrompt', () => {
+  const base = {
+    task: 'Repair the failing assertion.',
+    contextText: 'prior session state',
+  };
+
+  function fixtureWith(commandConventions: readonly string[]) {
+    return {
+      id: 'fixture',
+      repositoryUrl: 'https://github.com/example/repository.git',
+      revision: REVISION,
+      setupCommands: [],
+      commandConventions: [...commandConventions],
+      verificationCommands: [{ id: 'tests', command: 'pnpm test' }],
+    };
+  }
+
+  it('omits the section when a fixture states no conventions', () => {
+    const prompt = renderHostedConditionPrompt({
+      ...base,
+      fixture: fixtureWith([]),
+    });
+    expect(prompt).not.toContain('PROJECT COMMANDS');
+    expect(prompt).toContain('TASK');
+  });
+
+  it('states the conventions that make a project output reducible', () => {
+    const prompt = renderHostedConditionPrompt({
+      ...base,
+      fixture: fixtureWith([
+        'Run tests with `pnpm vitest run --reporter=json`.',
+        'Type-check with `pnpm tsc --pretty false`.',
+      ]),
+    });
+    expect(prompt).toContain('PROJECT COMMANDS');
+    expect(prompt).toContain(
+      '- Run tests with `pnpm vitest run --reporter=json`.',
+    );
+    // Identical for both conditions: the prompt does not depend on which one
+    // is running, so the conventions cannot advantage either arm.
+    expect(prompt).toBe(
+      renderHostedConditionPrompt({
+        ...base,
+        fixture: fixtureWith([
+          'Run tests with `pnpm vitest run --reporter=json`.',
+          'Type-check with `pnpm tsc --pretty false`.',
+        ]),
+      }),
+    );
   });
 });

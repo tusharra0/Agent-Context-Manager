@@ -32,6 +32,16 @@ export const PublicGitFixtureV1Schema = z
       ),
     revision: z.string().regex(/^[0-9a-f]{40}$/u),
     setupCommands: z.array(z.string().min(1)).max(10).default([]),
+    /**
+     * Project conventions appended to both conditions' prompts.
+     *
+     * Deterministic reducers can only fold output they can parse, and an agent
+     * left to itself runs `pnpm test` rather than a machine-readable reporter.
+     * Stating the convention is how a fixture makes its own output reducible;
+     * it is a declared property of the experiment, applied identically to the
+     * baseline and the managed condition.
+     */
+    commandConventions: z.array(z.string().min(1)).max(10).default([]),
     verificationCommands: z
       .array(
         z

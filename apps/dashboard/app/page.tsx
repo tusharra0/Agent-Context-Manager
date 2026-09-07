@@ -71,6 +71,11 @@ export default function HomePage() {
                       ? 'Typed reducer checkpoint evaluation'
                       : 'Supplied candidate checkpoint comparison'}
                   </p>
+                  <p className="eyebrow">
+                    {experiment.observationInterception === 'per-step'
+                      ? 'Observations reduced at every step'
+                      : 'Checkpoint context reduced once'}
+                  </p>
                   <h3>{experiment.experimentId}</h3>
                 </div>
                 <span className={`resultBadge ${experiment.status}`}>

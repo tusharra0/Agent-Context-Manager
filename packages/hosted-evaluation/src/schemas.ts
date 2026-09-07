@@ -11,7 +11,11 @@ import {
   EvaluationResultV1Schema,
   TaskOutcomeV1Schema,
 } from '@acm/evaluation';
-import { HarnessEventV1Schema, HarnessKindSchema } from '@acm/harness-port';
+import {
+  HarnessEventV1Schema,
+  HarnessKindSchema,
+  ObservationRecordV1Schema,
+} from '@acm/harness-port';
 
 const StableNameSchema = z
   .string()
@@ -83,6 +87,16 @@ export const HostedContextSourceSchema = z.enum([
   'typed-reducers',
 ]);
 
+/**
+ * Whether the run reduces observations as the agent produces them.
+ *
+ * `off` reduces only the checkpoint context the run starts from, which the
+ * harness overwrites with its own transcript from the second request onward.
+ * `per-step` shadows the harness's builtin tools so a reduced observation stays
+ * reduced for the rest of the session.
+ */
+export const HostedObservationInterceptionSchema = z.enum(['off', 'per-step']);
+
 export const HostedEvaluationPlanV1Schema = z
   .object({
     schemaVersion: z.literal(1),
@@ -92,6 +106,7 @@ export const HostedEvaluationPlanV1Schema = z
     model: z.string().min(1),
     contextSource: HostedContextSourceSchema.default('recorded-candidates'),
     reductionInputs: z.array(HostedReductionInputV1Schema).default([]),
+    observationInterception: HostedObservationInterceptionSchema.default('off'),
     timeoutMs: z
       .number()
       .int()
@@ -132,6 +147,8 @@ export const HostedConditionRunOutputV1Schema = z
     workspaceRevision: z.string().min(1),
     outcome: TaskOutcomeV1Schema,
     latencyMs: z.number().nonnegative(),
+    /** Audit records for every observation the run intercepted. */
+    observationRecords: z.array(ObservationRecordV1Schema).default([]),
   })
   .strict();
 
@@ -182,6 +199,7 @@ export const SanitizedExperimentSummaryV1Schema = z
     harness: HarnessKindSchema,
     model: z.string().min(1),
     contextSource: HostedContextSourceSchema.default('recorded-candidates'),
+    observationInterception: HostedObservationInterceptionSchema.default('off'),
     aggregate: EvaluationAggregateV1Schema,
     policyFailureCounts: PolicyFailureCountsV1Schema,
   })
@@ -195,6 +213,9 @@ export const SanitizedDashboardDatasetV1Schema = z
   })
   .strict();
 
+export type HostedObservationInterception = z.infer<
+  typeof HostedObservationInterceptionSchema
+>;
 export type PublicGitFixtureV1 = z.infer<typeof PublicGitFixtureV1Schema>;
 export type HostedReductionInputV1 = z.infer<
   typeof HostedReductionInputV1Schema

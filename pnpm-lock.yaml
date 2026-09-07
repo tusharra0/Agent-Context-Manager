@@ -38,9 +38,15 @@ importers:
       '@acm/event-store':
         specifier: workspace:*
         version: link:../../packages/event-store
+      '@acm/harness-port':
+        specifier: workspace:*
+        version: link:../../packages/harness-port
       '@acm/hosted-evaluation':
         specifier: workspace:*
         version: link:../../packages/hosted-evaluation
+      '@acm/observation-pipeline':
+        specifier: workspace:*
+        version: link:../../packages/observation-pipeline
       '@acm/reducers':
         specifier: workspace:*
         version: link:../../packages/reducers
@@ -177,6 +183,9 @@ importers:
       '@acm/hosted-evaluation':
         specifier: workspace:*
         version: link:../hosted-evaluation
+      '@acm/observation-pipeline':
+        specifier: workspace:*
+        version: link:../observation-pipeline
       '@ai-sdk/harness':
         specifier: 1.0.91
         version: 1.0.91(ws@8.21.3)(zod@4.4.3)

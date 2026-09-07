@@ -21,6 +21,12 @@ const aggregate = {
   baselineOnlyFailures: 0,
   rawRepeatedActionCount: null,
   managedRepeatedActionCount: null,
+  observationCaseCount: 0,
+  rawObservationTokens: null,
+  managedObservationTokens: null,
+  observationTokenReductionPercent: null,
+  medianObservationTokenReductionPercent: null,
+  reducibleSharePercent: null,
   forcedCompactionCheckpoints: 0,
   forcedCompactionRecoveries: 0,
 };

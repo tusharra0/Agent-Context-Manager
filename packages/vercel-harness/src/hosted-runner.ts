@@ -17,6 +17,7 @@ import type {
   HarnessEventV1,
   HarnessKind,
   ObservationInterceptor,
+  ObservationRecordV1,
 } from '@acm/harness-port';
 
 import {
@@ -41,6 +42,18 @@ export interface ObservationInterceptorRequest {
   readonly condition: HostedConditionRunInputV1['condition'];
   readonly harness: HarnessKind;
   readonly sessionId: SessionId;
+  /**
+   * Resolves the sandbox session directory. It exists only once the harness
+   * has acquired a session, which is after the interceptor has to be built,
+   * so it is passed as a resolver rather than a value.
+   */
+  readonly workingDirectory: () => string;
+}
+
+export interface ObservationInterceptorHandle {
+  readonly interceptor: ObservationInterceptor;
+  /** Audit records produced so far, in the order they were recorded. */
+  readonly records: () => readonly ObservationRecordV1[];
 }
 
 export interface VercelHostedConditionRunnerDependencies {
@@ -59,7 +72,7 @@ export interface VercelHostedConditionRunnerDependencies {
    */
   createObservationInterceptor?(
     request: ObservationInterceptorRequest,
-  ): ObservationInterceptor | undefined;
+  ): ObservationInterceptorHandle | undefined;
 }
 
 /**
@@ -257,29 +270,58 @@ export function requireSuccessfulHarnessTrace(
 }
 
 export class VercelHostedConditionRunner implements HostedConditionRunnerPort {
-  constructor(
-    private readonly dependencies: VercelHostedConditionRunnerDependencies = DEFAULT_DEPENDENCIES,
-  ) {}
+  private readonly dependencies: VercelHostedConditionRunnerDependencies;
 
+  constructor(
+    dependencies: Partial<VercelHostedConditionRunnerDependencies> = {},
+  ) {
+    this.dependencies = { ...DEFAULT_DEPENDENCIES, ...dependencies };
+  }
+
+  /**
+   * Resolves the interception the plan asked for.
+   *
+   * The plan decides, not the caller: an `off` plan never builds an
+   * interceptor even when a factory is available, and a `per-step` plan fails
+   * rather than quietly running without one, because a run that silently
+   * skipped interception would look like a reduction that achieved nothing.
+   */
   private observationFor(
     input: HostedConditionRunInputV1,
     sessionId: SessionId,
-  ): VercelObservationOptions | undefined {
-    const interceptor = this.dependencies.createObservationInterceptor?.({
+    workingDirectory: () => string,
+  ):
+    | {
+        options: VercelObservationOptions;
+        records: () => readonly ObservationRecordV1[];
+      }
+    | undefined {
+    // Anything but an explicit request leaves the builtins alone. Defaulting
+    // the other way would let a malformed plan reduce a baseline by accident.
+    if (input.observationInterception !== 'per-step') return undefined;
+    const handle = this.dependencies.createObservationInterceptor?.({
       condition: input.condition,
       harness: input.harness,
       sessionId,
+      workingDirectory,
     });
-    if (interceptor === undefined) return undefined;
-    const required = REQUIRED_OBSERVATION_POLICY[input.condition];
-    if (interceptor.policy !== required) {
+    if (handle === undefined) {
       throw new Error(
-        `The ${input.condition} condition requires the ${required} observation policy but received ${interceptor.policy}.`,
+        'The plan requests per-step observation interception but no interceptor was supplied.',
+      );
+    }
+    const required = REQUIRED_OBSERVATION_POLICY[input.condition];
+    if (handle.interceptor.policy !== required) {
+      throw new Error(
+        `The ${input.condition} condition requires the ${required} observation policy but received ${handle.interceptor.policy}.`,
       );
     }
     return {
-      interceptor,
-      tools: OBSERVATION_TOOLS_BY_HARNESS[input.harness],
+      options: {
+        interceptor: handle.interceptor,
+        tools: OBSERVATION_TOOLS_BY_HARNESS[input.harness],
+      },
+      records: handle.records,
     };
   }
 
@@ -289,9 +331,14 @@ export class VercelHostedConditionRunner implements HostedConditionRunnerPort {
     const startedAt = performance.now();
     const signal = timeoutSignal(input.timeoutMs);
     const sessionId = createSessionId();
-    const observation = this.observationFor(input, sessionId);
     let sandboxSession: SandboxCommandSession | undefined;
     let sandboxWorkDir: string | undefined;
+    const observation = this.observationFor(input, sessionId, () => {
+      if (sandboxWorkDir === undefined) {
+        throw new Error('The sandbox session directory is not available yet.');
+      }
+      return sandboxWorkDir;
+    });
     const sandbox = this.dependencies.createSandbox({
       runtime: 'node24',
       ports: [4000],
@@ -319,14 +366,18 @@ export class VercelHostedConditionRunner implements HostedConditionRunnerPort {
             sandbox,
             codex: { auth: 'ai-gateway', model: input.model },
             sandboxConfig,
-            ...(observation === undefined ? {} : { observation }),
+            ...(observation === undefined
+              ? {}
+              : { observation: observation.options }),
           }
         : {
             harness: 'claude-code',
             sandbox,
             claudeCode: { auth: 'ai-gateway', model: input.model },
             sandboxConfig,
-            ...(observation === undefined ? {} : { observation }),
+            ...(observation === undefined
+              ? {}
+              : { observation: observation.options }),
           };
     const port = this.dependencies.createPort(portOptions);
     const session = await port.createSession(
@@ -381,6 +432,7 @@ export class VercelHostedConditionRunner implements HostedConditionRunnerPort {
         ),
         outcome,
         latencyMs: performance.now() - startedAt,
+        observationRecords: [...(observation?.records() ?? [])],
       };
     } catch (error) {
       primaryError = error;

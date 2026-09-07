@@ -350,17 +350,33 @@ export const EvaluationAggregateV1Schema = z
     baselineOnlyFailures: z.number().int().nonnegative(),
     rawRepeatedActionCount: z.number().int().nonnegative().nullable(),
     managedRepeatedActionCount: z.number().int().nonnegative().nullable(),
-    /** Cases where both conditions recorded per-step observations. */
-    observationCaseCount: z.number().int().nonnegative(),
-    rawObservationTokens: z.number().int().nonnegative().nullable(),
-    managedObservationTokens: z.number().int().nonnegative().nullable(),
-    observationTokenReductionPercent: z.number().nullable(),
-    medianObservationTokenReductionPercent: z.number().nullable(),
+    /**
+     * Cases where both conditions recorded per-step observations.
+     *
+     * Defaulted so a result produced before interception existed still loads:
+     * it genuinely intercepted nothing, and the token fields stay null rather
+     * than becoming a zero that would read as a measured absence of saving.
+     */
+    observationCaseCount: z.number().int().nonnegative().default(0),
+    rawObservationTokens: z
+      .number()
+      .int()
+      .nonnegative()
+      .nullable()
+      .default(null),
+    managedObservationTokens: z
+      .number()
+      .int()
+      .nonnegative()
+      .nullable()
+      .default(null),
+    observationTokenReductionPercent: z.number().nullable().default(null),
+    medianObservationTokenReductionPercent: z.number().nullable().default(null),
     /**
      * Share of the baseline's observation tokens a reduction could reach. A
      * measured saving is only interpretable against it.
      */
-    reducibleSharePercent: z.number().nullable(),
+    reducibleSharePercent: z.number().nullable().default(null),
     forcedCompactionCheckpoints: z.number().int().nonnegative(),
     forcedCompactionRecoveries: z.number().int().nonnegative(),
   })

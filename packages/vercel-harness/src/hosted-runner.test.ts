@@ -10,6 +10,7 @@ import {
   materializePublicGitFixture,
   requireSuccessfulHarnessTrace,
   VercelHostedConditionRunner,
+  type ObservationInterceptorHandle,
   type ObservationInterceptorRequest,
   type SandboxCommandSession,
   type VercelHostedConditionRunnerDependencies,
@@ -18,7 +19,7 @@ import type {
   AgentHarnessPort,
   AgentHarnessSession,
   HarnessEventV1,
-  ObservationInterceptor,
+  ObservationRecordV1,
 } from '@acm/harness-port';
 
 const FIXTURE: PublicGitFixtureV1 = {
@@ -222,6 +223,7 @@ describe('VercelHostedConditionRunner', () => {
         checkpointId: 'checkpoint',
         contextText: 'context',
         timeoutMs: 20,
+        observationInterception: 'off',
         onTrace: async (entry) => {
           trace.push(entry.kind);
         },
@@ -241,6 +243,7 @@ describe('per-step observation interception', () => {
   function conditionInput(
     condition: 'raw' | 'managed',
     harness: 'codex' | 'claude-code' = 'claude-code',
+    observationInterception: 'off' | 'per-step' = 'per-step',
   ): HostedConditionRunInputV1 {
     return {
       condition,
@@ -251,15 +254,22 @@ describe('per-step observation interception', () => {
       checkpointId: 'after-setup',
       contextText: 'prior state',
       timeoutMs: 60_000,
+      observationInterception,
     };
   }
 
-  function stubInterceptor(policy: 'raw' | 'reduced'): ObservationInterceptor {
+  function stubHandle(
+    policy: 'raw' | 'reduced',
+    records: readonly ObservationRecordV1[] = [],
+  ): ObservationInterceptorHandle {
     return {
-      policy,
-      intercept: () => {
-        throw new Error('The stub interceptor is never invoked.');
+      interceptor: {
+        policy,
+        intercept: () => {
+          throw new Error('The stub interceptor is never invoked.');
+        },
       },
+      records: () => records,
     };
   }
 
@@ -293,21 +303,39 @@ describe('per-step observation interception', () => {
     };
   }
 
-  it('leaves the harness builtins in place when no interceptor is supplied', async () => {
-    const capture = captureOptions({});
-    await capture.run(conditionInput('managed'));
+  it('leaves the harness builtins in place when the plan disables interception', async () => {
+    const createObservationInterceptor = vi.fn(() => stubHandle('reduced'));
+    const capture = captureOptions({ createObservationInterceptor });
+
+    await capture.run(conditionInput('managed', 'claude-code', 'off'));
+
     expect(capture.options()?.observation).toBeUndefined();
+    // The plan decides, so no interceptor is even built.
+    expect(createObservationInterceptor).not.toHaveBeenCalled();
+  });
+
+  it('fails rather than running a per-step plan without an interceptor', async () => {
+    const runner = new VercelHostedConditionRunner({
+      createSandbox: () => ({}) as never,
+      createPort: () => {
+        throw new Error('the port must never be created');
+      },
+    });
+
+    await expect(
+      runner.runCondition(conditionInput('managed')),
+    ).rejects.toThrow('no interceptor was supplied');
   });
 
   it('overrides the builtins each harness actually owns', async () => {
     const codex = captureOptions({
-      createObservationInterceptor: () => stubInterceptor('reduced'),
+      createObservationInterceptor: () => stubHandle('reduced'),
     });
     await codex.run(conditionInput('managed', 'codex'));
     expect(codex.options()?.observation?.tools).toEqual(['bash']);
 
     const claudeCode = captureOptions({
-      createObservationInterceptor: () => stubInterceptor('reduced'),
+      createObservationInterceptor: () => stubHandle('reduced'),
     });
     await claudeCode.run(conditionInput('managed', 'claude-code'));
     expect(claudeCode.options()?.observation?.tools).toEqual([
@@ -322,7 +350,7 @@ describe('per-step observation interception', () => {
     const capture = captureOptions({
       createObservationInterceptor: (request) => {
         requests.push(request);
-        return stubInterceptor('raw');
+        return stubHandle('raw');
       },
     });
 
@@ -333,13 +361,29 @@ describe('per-step observation interception', () => {
     expect(requests[0]?.sessionId).toMatch(/^ses_[0-9a-f]{32}$/u);
   });
 
+  it('refuses to resolve a working directory before the sandbox reports one', async () => {
+    const requests: ObservationInterceptorRequest[] = [];
+    const capture = captureOptions({
+      createObservationInterceptor: (request) => {
+        requests.push(request);
+        return stubHandle('reduced');
+      },
+    });
+
+    await capture.run(conditionInput('managed'));
+
+    expect(() => requests[0]?.workingDirectory()).toThrow(
+      'sandbox session directory is not available',
+    );
+  });
+
   it('refuses a baseline that would reduce its own observations', async () => {
     const runner = new VercelHostedConditionRunner({
       createSandbox: () => ({}) as never,
       createPort: () => {
         throw new Error('the port must never be created');
       },
-      createObservationInterceptor: () => stubInterceptor('reduced'),
+      createObservationInterceptor: () => stubHandle('reduced'),
     });
 
     await expect(runner.runCondition(conditionInput('raw'))).rejects.toThrow(
@@ -353,7 +397,7 @@ describe('per-step observation interception', () => {
       createPort: () => {
         throw new Error('the port must never be created');
       },
-      createObservationInterceptor: () => stubInterceptor('raw'),
+      createObservationInterceptor: () => stubHandle('raw'),
     });
 
     await expect(

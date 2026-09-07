@@ -15,11 +15,13 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@acm/core": "workspace:*",
     "@acm/context-assembler": "workspace:*",
-    "@acm/event-store": "workspace:*",
+    "@acm/core": "workspace:*",
     "@acm/evaluation": "workspace:*",
+    "@acm/event-store": "workspace:*",
+    "@acm/harness-port": "workspace:*",
     "@acm/hosted-evaluation": "workspace:*",
+    "@acm/observation-pipeline": "workspace:*",
     "@acm/reducers": "workspace:*",
     "@acm/vercel-harness": "workspace:*"
   }

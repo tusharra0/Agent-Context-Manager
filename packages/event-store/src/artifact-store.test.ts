@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { once } from 'node:events';
 import {
   mkdir,
   mkdtemp,
@@ -11,6 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
+import { setImmediate } from 'node:timers/promises';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -131,6 +133,63 @@ describe('LocalArtifactStore', () => {
     await expect(
       readStream(await store.open(stored.uri)),
     ).rejects.toBeInstanceOf(ArtifactIntegrityError);
+  });
+
+  it('delivers integrity errors to consumers that start reading later', async () => {
+    const root = await temporaryDirectory();
+    const artifactRoot = join(root, 'artifacts');
+    const store = new LocalArtifactStore(artifactRoot);
+    const stored = await store.put(Readable.from('trusted'));
+    const artifactPath = join(
+      artifactRoot,
+      'sha256',
+      stored.digest.slice(0, 2),
+      stored.digest.slice(2, 4),
+      stored.digest,
+    );
+    await writeFile(artifactPath, 'corrupt');
+
+    const stream = (await store.open(stored.uri)) as Readable;
+    // Let I/O and error callbacks run before installing any consumer handler.
+    // An eager verifying pipe emits an uncaught integrity error in this gap.
+    await setImmediate();
+    await setImmediate();
+    await setImmediate();
+    expect(stream.readableLength).toBe(0);
+    expect(stream.destroyed).toBe(false);
+    await expect(readStream(stream)).rejects.toBeInstanceOf(
+      ArtifactIntegrityError,
+    );
+    expect(stream.closed).toBe(true);
+  });
+
+  it('closes opened streams when destroyed before reading or during consumption', async () => {
+    const root = await temporaryDirectory();
+    const store = new LocalArtifactStore(join(root, 'artifacts'));
+    const stored = await store.put(Readable.from(Buffer.alloc(256 * 1024, 7)));
+
+    const unopened = (await store.open(stored.uri)) as Readable;
+    const unopenedClosed = once(unopened, 'close');
+    unopened.destroy();
+    await unopenedClosed;
+    expect(unopened.closed).toBe(true);
+
+    const partial = (await store.open(stored.uri)) as Readable;
+    const partialClosed = once(partial, 'close');
+    for await (const chunk of partial) {
+      expect(chunk.byteLength).toBeLessThan(stored.byteLength);
+      break;
+    }
+    // Early async-iterator return destroys the stream with AbortError.
+    await partialClosed.catch((error: unknown) => {
+      expect(error).toMatchObject({ code: 'ABORT_ERR' });
+    });
+    if (!partial.closed)
+      await new Promise<void>((resolve) => partial.once('close', resolve));
+    expect(partial.closed).toBe(true);
+    expect(await store.verify(stored.uri)).toMatchObject({
+      byteLength: stored.byteLength,
+    });
   });
 
   it('rejects invalid URIs and refuses destination overwrite', async () => {

@@ -1,19 +1,30 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { readFile, rename, rm, writeFile } from 'node:fs/promises';
+import {
+  open,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+  type FileHandle,
+} from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { loadEnvFile } from 'node:process';
+import { Readable } from 'node:stream';
 import { TextDecoder } from 'node:util';
 
 import { canonicalJson } from '@acm/core';
 import {
   HostedEvaluationPlanV1Schema,
   SanitizedDashboardDatasetV1Schema,
+  prepareHostedEvaluationPlan,
   runHostedEvaluationPlan,
   sanitizeEvaluationResult,
   upsertSanitizedExperiment,
   type SanitizedDashboardDatasetV1,
+  type HostedConditionRunnerPort,
 } from '@acm/hosted-evaluation';
+import { LocalArtifactStore } from '@acm/event-store';
 import { TOKEN_ESTIMATOR_ID, estimateTokens } from '@acm/reducers';
 import { VercelHostedConditionRunner } from '@acm/vercel-harness';
 
@@ -24,6 +35,19 @@ import {
 } from '../arguments.js';
 import type { CliIo, CliRuntime } from '../cli-context.js';
 import { requirePositionals } from '../command-options.js';
+import { resolveStorageConfiguration } from '../configuration.js';
+
+const ESTIMATOR = { id: TOKEN_ESTIMATOR_ID, estimate: estimateTokens } as const;
+
+export interface HostedCommandDependencies {
+  createRunner(): HostedConditionRunnerPort;
+  loadEnvironment(): void;
+}
+
+const DEFAULT_DEPENDENCIES: HostedCommandDependencies = {
+  createRunner: () => new VercelHostedConditionRunner(),
+  loadEnvironment: loadLocalVercelEnvironment,
+};
 
 async function readJson(path: string, label: string): Promise<unknown> {
   const bytes = await readFile(path);
@@ -78,6 +102,39 @@ async function replacePrivateFile(
   }
 }
 
+async function reservePrivateFile(path: string): Promise<FileHandle> {
+  return open(resolve(path), 'wx', 0o600);
+}
+
+async function writeReservedFile(
+  handle: FileHandle,
+  content: string,
+): Promise<void> {
+  await handle.truncate(0);
+  await handle.writeFile(content, { encoding: 'utf8' });
+  await handle.sync();
+}
+
+async function removeReservation(
+  handle: FileHandle | undefined,
+  path: string | undefined,
+): Promise<void> {
+  if (handle === undefined || path === undefined) return;
+  await handle.close().catch(() => undefined);
+  await rm(resolve(path), { force: true }).catch(() => undefined);
+}
+
+async function verifyReplaceDestination(path: string): Promise<void> {
+  const target = resolve(path);
+  const probe = resolve(
+    dirname(target),
+    `.${process.pid}.${randomUUID()}.probe`,
+  );
+  const handle = await open(probe, 'wx', 0o600);
+  await handle.close();
+  await rm(probe, { force: true });
+}
+
 export function findLocalVercelEnvironmentFile(
   startDirectory: string,
 ): string | undefined {
@@ -109,6 +166,7 @@ export async function hostedCommand(
   options: ReadonlyMap<string, string | true>,
   runtime: CliRuntime,
   io: CliIo,
+  dependencies: HostedCommandDependencies = DEFAULT_DEPENDENCIES,
 ): Promise<number> {
   const [operation] = positionals;
   if (operation === 'validate') {
@@ -118,9 +176,10 @@ export async function hostedCommand(
       'hosted validate requires a plan JSON path.',
     );
     rejectUnknownOptions(options, []);
-    const plan = HostedEvaluationPlanV1Schema.parse(
+    const parsedPlan = HostedEvaluationPlanV1Schema.parse(
       await readJson(positionals[1]!, 'Hosted evaluation plan'),
     );
+    const { plan } = await prepareHostedEvaluationPlan(parsedPlan, ESTIMATOR);
     io.stdout(
       canonicalJson({
         valid: true,
@@ -135,48 +194,122 @@ export async function hostedCommand(
   }
   if (operation === 'run') {
     requirePositionals(positionals, 2, 'hosted run requires a plan JSON path.');
-    rejectUnknownOptions(options, ['output', 'summary', 'dashboard-data']);
+    rejectUnknownOptions(options, [
+      'output',
+      'summary',
+      'dashboard-data',
+      'trace',
+      'data-dir',
+    ]);
     const outputPath = stringOption(options, 'output', true)!;
     const summaryPath = stringOption(options, 'summary');
     const dashboardPath = stringOption(options, 'dashboard-data');
-    const paths = [outputPath, summaryPath, dashboardPath].filter(
+    const tracePath =
+      stringOption(options, 'trace') ?? `${outputPath}.trace.jsonl`;
+    const dataDirectory = stringOption(options, 'data-dir');
+    const paths = [outputPath, summaryPath, dashboardPath, tracePath].filter(
       (path): path is string => path !== undefined,
     );
     if (new Set(paths.map((path) => resolve(path))).size !== paths.length) {
       throw new UsageError('Hosted output paths must be different.');
     }
 
-    const plan = HostedEvaluationPlanV1Schema.parse(
+    const parsedPlan = HostedEvaluationPlanV1Schema.parse(
       await readJson(positionals[1]!, 'Hosted evaluation plan'),
     );
-    loadLocalVercelEnvironment();
-    const result = await runHostedEvaluationPlan(
-      plan,
-      new VercelHostedConditionRunner(),
-      { id: TOKEN_ESTIMATOR_ID, estimate: estimateTokens },
-    );
-    await writeFile(outputPath, canonicalJson(result), {
-      flag: 'wx',
-      mode: 0o600,
-    });
-    io.stdout(`Wrote private hosted evaluation result to ${outputPath}`);
-
+    const { plan } = await prepareHostedEvaluationPlan(parsedPlan, ESTIMATOR);
     const createdAt = runtime.now();
-    const summary = sanitizeEvaluationResult(result, plan, createdAt);
-    if (summaryPath) {
-      await writeFile(summaryPath, canonicalJson(summary), {
-        flag: 'wx',
-        mode: 0o600,
-      });
-      io.stdout(`Wrote sanitized hosted evaluation summary to ${summaryPath}`);
+    const existingDashboard = dashboardPath
+      ? await readDashboardDataset(dashboardPath, createdAt)
+      : undefined;
+    if (dashboardPath) await verifyReplaceDestination(dashboardPath);
+
+    let outputHandle: FileHandle | undefined;
+    let summaryHandle: FileHandle | undefined;
+    let traceHandle: FileHandle | undefined;
+    let resultWritten = false;
+    try {
+      outputHandle = await reservePrivateFile(outputPath);
+      traceHandle = await reservePrivateFile(tracePath);
+      if (summaryPath) summaryHandle = await reservePrivateFile(summaryPath);
+    } catch (error) {
+      await removeReservation(outputHandle, outputPath);
+      await removeReservation(traceHandle, tracePath);
+      await removeReservation(summaryHandle, summaryPath);
+      throw error;
     }
-    if (dashboardPath) {
-      const existing = await readDashboardDataset(dashboardPath, createdAt);
-      const dataset = upsertSanitizedExperiment(existing, summary, createdAt);
-      await replacePrivateFile(dashboardPath, canonicalJson(dataset));
-      io.stdout(`Updated sanitized dashboard data at ${dashboardPath}`);
+
+    try {
+      dependencies.loadEnvironment();
+      const storage = resolveStorageConfiguration(
+        dataDirectory,
+        runtime.environment,
+      );
+      const artifactStore = new LocalArtifactStore(storage.artifactRoot);
+      const result = await runHostedEvaluationPlan(
+        plan,
+        dependencies.createRunner(),
+        ESTIMATOR,
+        {
+          onRecord: async (record) => {
+            await traceHandle!.appendFile(`${canonicalJson(record)}\n`, 'utf8');
+            await traceHandle!.sync();
+          },
+          persistArtifact: async (rawText) => {
+            const stored = await artifactStore.put(
+              Readable.from([Buffer.from(rawText, 'utf8')]),
+            );
+            return {
+              uri: stored.uri,
+              digest: stored.digest,
+              byteLength: stored.byteLength,
+            };
+          },
+        },
+      );
+      await writeReservedFile(outputHandle, canonicalJson(result));
+      resultWritten = true;
+      io.stdout(`Wrote private hosted evaluation result to ${outputPath}`);
+
+      const summary = sanitizeEvaluationResult(result, plan, createdAt);
+      if (summaryHandle && summaryPath) {
+        await writeReservedFile(summaryHandle, canonicalJson(summary));
+        io.stdout(
+          `Wrote sanitized hosted evaluation summary to ${summaryPath}`,
+        );
+      }
+      if (dashboardPath && existingDashboard) {
+        const dataset = upsertSanitizedExperiment(
+          existingDashboard,
+          summary,
+          createdAt,
+        );
+        await replacePrivateFile(dashboardPath, canonicalJson(dataset));
+        io.stdout(`Updated sanitized dashboard data at ${dashboardPath}`);
+      }
+      await traceHandle.sync();
+      return result.status === 'pass' ? 0 : 2;
+    } catch (error) {
+      if (!resultWritten) {
+        await writeReservedFile(
+          outputHandle,
+          canonicalJson({
+            schemaVersion: 1,
+            status: 'error',
+            experimentId: plan.experiment.id,
+            tracePath: resolve(tracePath),
+            message: error instanceof Error ? error.message : String(error),
+          }),
+        ).catch(() => undefined);
+        await removeReservation(summaryHandle, summaryPath);
+        summaryHandle = undefined;
+      }
+      throw error;
+    } finally {
+      await outputHandle.close().catch(() => undefined);
+      await traceHandle.close().catch(() => undefined);
+      await summaryHandle?.close().catch(() => undefined);
     }
-    return result.status === 'pass' ? 0 : 2;
   }
   throw new UsageError('hosted requires either validate or run.');
 }

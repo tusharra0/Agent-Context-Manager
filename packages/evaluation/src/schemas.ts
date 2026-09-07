@@ -58,6 +58,7 @@ export const ReplayObservationV1Schema = z
     contentHash: Sha256DigestSchema,
     safeForContext: z.boolean(),
     managedCandidate: ContextCandidateV1Schema,
+    managedExclusion: z.literal('superseded').optional(),
   })
   .strict();
 
@@ -118,7 +119,7 @@ export const NormalizedAgentActionV1Schema = z
 export const RecordedActionV1Schema = z
   .object({
     action: NormalizedAgentActionV1Schema,
-    workspaceRevision: z.string().min(1),
+    workspaceRevision: z.string().min(1).nullable(),
   })
   .strict();
 
@@ -249,8 +250,8 @@ export const EvaluationCheckpointResultV1Schema = z
     checkpointId: StableNameSchema,
     rawTokenEstimate: z.number().int().nonnegative(),
     managedTokenEstimate: z.number().int().nonnegative(),
-    tokenReduction: z.number().int(),
-    tokenReductionPercent: z.number().nullable(),
+    estimatedTokenReduction: z.number().int(),
+    estimatedTokenReductionPercent: z.number().nullable(),
     forcedCompaction: z.boolean(),
     recoveryPassed: z.boolean().nullable(),
     rawNextAction: NormalizedAgentActionV1Schema,
@@ -267,8 +268,8 @@ export const EvaluationCaseResultV1Schema = z
   .object({
     caseId: StableNameSchema,
     checkpointResults: z.array(EvaluationCheckpointResultV1Schema).min(1),
-    rawRepeatedActionCount: z.number().int().nonnegative(),
-    managedRepeatedActionCount: z.number().int().nonnegative(),
+    rawRepeatedActionCount: z.number().int().nonnegative().nullable(),
+    managedRepeatedActionCount: z.number().int().nonnegative().nullable(),
     rawSuccess: z.boolean(),
     managedSuccess: z.boolean(),
     outcomeClassification: z.enum([
@@ -290,8 +291,14 @@ export const EvaluationCaseResultV1Schema = z
 
 export const EvaluationAggregateV1Schema = z
   .object({
+    caseCount: z.number().int().nonnegative(),
     checkpointCount: z.number().int().nonnegative(),
-    medianTokenReductionPercent: z.number().nullable(),
+    medianEstimatedContextReductionPercent: z.number().nullable(),
+    measuredInputTokenCaseCount: z.number().int().nonnegative(),
+    rawMeasuredInputTokens: z.number().int().nonnegative().nullable(),
+    managedMeasuredInputTokens: z.number().int().nonnegative().nullable(),
+    measuredInputTokenReductionPercent: z.number().nullable(),
+    medianMeasuredInputTokenReductionPercent: z.number().nullable(),
     exactNextActionAgreements: z.number().int().nonnegative(),
     exactNextActionAgreementRate: z.number().min(0).max(1).nullable(),
     criticalFieldsPreserved: z.number().int().nonnegative(),
@@ -300,8 +307,8 @@ export const EvaluationAggregateV1Schema = z
     rawTaskSuccesses: z.number().int().nonnegative(),
     managedTaskSuccesses: z.number().int().nonnegative(),
     baselineOnlyFailures: z.number().int().nonnegative(),
-    rawRepeatedActionCount: z.number().int().nonnegative(),
-    managedRepeatedActionCount: z.number().int().nonnegative(),
+    rawRepeatedActionCount: z.number().int().nonnegative().nullable(),
+    managedRepeatedActionCount: z.number().int().nonnegative().nullable(),
     forcedCompactionCheckpoints: z.number().int().nonnegative(),
     forcedCompactionRecoveries: z.number().int().nonnegative(),
   })

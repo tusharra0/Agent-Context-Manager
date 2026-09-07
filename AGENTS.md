@@ -27,6 +27,11 @@ Do not load every document for an unrelated implementation task.
 - Treat completed subtasks as candidates for folding, but retain outcomes and evidence references.
 - Judge context reduction using task correctness and agent behavior, not token savings alone.
 - Keep raw source code, messages, and tool output local by default.
+- Never permanently delete this repository as part of cleanup. Treat repository
+  cleanup as a recoverable archive operation: use an explicit user-approved
+  destination outside the repository, verify the archive, and do not remove the
+  original unless the user separately confirms removal after verification. If no
+  archive destination is specified, stop and ask for one.
 
 ## Current technical decisions
 

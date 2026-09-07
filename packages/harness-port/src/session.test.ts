@@ -198,6 +198,35 @@ function exerciseContract(harness: HarnessKind): void {
       });
       await session.destroy();
     });
+
+    it('forwards an external abort signal into an active turn', async () => {
+      const port = new ScriptedHarnessPort({
+        harness,
+        turns: [{ events: [], waitForAbort: true }],
+      });
+      const session = await port.createSession({
+        schemaVersion: 1,
+        sessionId: SESSION_ID,
+      });
+      const controller = new AbortController();
+      const collection = collect(
+        session.stream(
+          {
+            schemaVersion: 1,
+            prompt: 'Work.',
+            workspaceRevision: 'abc123',
+          },
+          { abortSignal: controller.signal },
+        ),
+      );
+
+      controller.abort('deadline-exceeded');
+      expect((await collection).at(-1)).toMatchObject({
+        kind: 'interrupted',
+        reason: 'deadline-exceeded',
+      });
+      await session.destroy();
+    });
   });
 }
 

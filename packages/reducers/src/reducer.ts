@@ -65,7 +65,7 @@ function preservedFields(reduced: ReducedTestResultV1): string[] {
 
 export class VitestJsonReducer implements ContextReducer {
   readonly reducerId = 'test-result/vitest-json';
-  readonly reducerVersion = '1.0.0';
+  readonly reducerVersion = '1.1.0';
   readonly supportedKinds = ['test_result'] as const;
 
   async reduce(eventInput: ContextEvent): Promise<ReductionResult> {
@@ -108,6 +108,12 @@ export class VitestJsonReducer implements ContextReducer {
         : {}),
       ...(payload.data.reportedCounts
         ? { reportedCounts: payload.data.reportedCounts }
+        : {}),
+      ...(payload.data.reportedSuiteCounts
+        ? { reportedSuiteCounts: payload.data.reportedSuiteCounts }
+        : {}),
+      ...(payload.data.snapshot !== undefined
+        ? { snapshot: payload.data.snapshot }
         : {}),
       ...(payload.data.observedCounts
         ? { observedCounts: payload.data.observedCounts }

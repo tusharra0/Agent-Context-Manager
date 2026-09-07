@@ -246,6 +246,8 @@ type TestCounts = {
 
 type TestFailure = {
   testName: string;
+  scope?: 'suite';
+  suiteStatus?: string;
   file?: string;
   line?: number;
   column?: number;
@@ -269,6 +271,8 @@ type TestResultObservationV1 = {
   exitCode?: number;
   success?: boolean;
   reportedCounts?: TestCounts;
+  reportedSuiteCounts?: TestCounts;
+  snapshot?: JsonValue;
   observedCounts?: TestCounts;
   failures: TestFailure[];
   diagnostics: ReductionDiagnostic[];
@@ -279,6 +283,14 @@ type TestResultObservationV1 = {
 `reportedCounts` contains supported top-level fields from the reporter.
 `observedCounts` is derived from assertion records. A mismatch is preserved as
 a diagnostic; one value must not silently replace the other.
+
+`reportedSuiteCounts` retains the reporter's independent suite totals; Vitest
+may count nested suites, so these are not derived from the file-result count.
+`snapshot` retains the reporter snapshot object unchanged. Suite import/setup
+errors are entries in `failures` with `scope: 'suite'`, the suite name as
+`testName`, its reported status, and the exact suite `message`. They do not
+inflate assertion counts. These optional fields extend version 1; older
+persisted observations remain readable without rewriting their evidence.
 
 ### Reduced representation
 
@@ -291,6 +303,8 @@ type ReducedTestResultV1 = {
   exitCode?: number;
   success?: boolean;
   reportedCounts?: TestCounts;
+  reportedSuiteCounts?: TestCounts;
+  snapshot?: JsonValue;
   observedCounts?: TestCounts;
   failures: TestFailure[];
   diagnostics: ReductionDiagnostic[];
@@ -336,7 +350,7 @@ The Vitest reducer identity is:
 
 ```text
 reducerId: test-result/vitest-json
-reducerVersion: 1.0.0
+reducerVersion: 1.1.0
 ```
 
 The reducer must:
@@ -347,8 +361,8 @@ The reducer must:
    reducer version. Event IDs and timestamps are not included in reduced text.
 4. List preserved fields as JSON Pointer paths.
 5. Never fabricate missing expected or actual values.
-6. Include every failed assertion and every failure message exposed by the
-   supported Vitest JSON fields.
+6. Include every failed assertion and suite error, including errors raised
+   before assertions run, with every supported failure message intact.
 7. Carry every parser diagnostic into the reduction.
 8. Set `safeForContext` to false for an opaque parse.
 
@@ -382,8 +396,13 @@ Parser rules:
   delimiters. The original failure message remains authoritative.
 - Record unsupported or malformed claimed fields as diagnostics rather than
   silently coercing them.
-- Ignore unknown additive fields only after recording their JSON paths in a
-  diagnostic. They remain recoverable from the artifact.
+- Preserve suite `status` and nonempty `message` as suite failure evidence,
+  including when `assertionResults` is empty or malformed. A failed suite
+  without a message or usable name is incomplete and requires restoration.
+- Record unknown additive fields by JSON path and require restoration until
+  their meaning is supported. Malformed known fields, count mismatches,
+  unexplained failure flags, and unsupported assertion metadata also make the
+  observation partial. Unknown fields may contain new reporter error details.
 
 Passing assertion names are intentionally omitted from the reduction after
 their statuses contribute to counts. This is the first deterministic noise
@@ -437,6 +456,20 @@ artifact://sha256/<64-lowercase-hex-digest>
 
 The URI parser accepts only the exact scheme, algorithm, and digest grammar.
 The digest is never used as a path until validation succeeds.
+
+`open` validates and opens the artifact handle, but starts byte reads and hash
+verification only when the consumer requests data. A caller can delay
+consumption without an integrity error being emitted before it attaches a
+handler. Reading to completion verifies the digest; consumers must observe
+stream completion before trusting the result. Completion, failure, explicit
+destruction, and early async-iterator return all close the handle. Callers that
+abandon a stream before consumption must destroy it.
+
+The same conservative parsing rule applies to the ripgrep JSON extension:
+each JSON record and nested object/array is checked before use. Invalid root
+values, malformed `data`, and non-array or non-object `submatches` produce
+diagnostics rather than parser exceptions. Valid matches in mixed input remain
+available in a partial observation; all raw bytes remain restorable.
 
 ### Publication algorithm
 

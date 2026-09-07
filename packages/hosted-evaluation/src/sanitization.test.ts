@@ -21,8 +21,14 @@ function result(experimentId = 'hosted-result'): EvaluationResultV1 {
     status: 'fail',
     cases: [],
     aggregate: {
+      caseCount: 1,
       checkpointCount: 1,
-      medianTokenReductionPercent: 32,
+      medianEstimatedContextReductionPercent: 32,
+      measuredInputTokenCaseCount: 1,
+      rawMeasuredInputTokens: 100,
+      managedMeasuredInputTokens: 70,
+      measuredInputTokenReductionPercent: 30,
+      medianMeasuredInputTokenReductionPercent: 30,
       exactNextActionAgreements: 0,
       exactNextActionAgreementRate: 0,
       criticalFieldsPreserved: 4,
@@ -58,7 +64,8 @@ describe('hosted result sanitization', () => {
     const serialized = JSON.stringify(summary);
 
     expect(summary.policyFailureCounts['next-action-divergence']).toBe(1);
-    expect(summary.aggregate.medianTokenReductionPercent).toBe(32);
+    expect(summary.aggregate.medianEstimatedContextReductionPercent).toBe(32);
+    expect(summary.aggregate.measuredInputTokenReductionPercent).toBe(30);
     expect(serialized).not.toContain('PRIVATE_FAILURE_TEXT');
     expect(serialized).not.toContain('DO_NOT_PUBLISH');
     expect(serialized).not.toContain('private-case');

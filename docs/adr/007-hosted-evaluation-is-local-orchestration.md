@@ -22,6 +22,18 @@ The first hosted slice accepts exactly one replay checkpoint per case. This
 keeps a case equivalent to one isolated task run while retaining Phase 3's
 paired checkpoint metrics.
 
+Hosted plans may retain pre-recorded candidates for legacy replay, or select a
+typed-reducer mode that derives managed candidates from verified raw evidence
+with the production reducers. This is checkpoint evaluation; the current native
+harness adapter does not provide continuous prompt replacement during a longer
+trajectory.
+
+Before starting remote work, the local CLI performs complete semantic plan
+validation and reserves private output paths. It persists raw observations in
+the local artifact store and synchronously appends commands and normalized
+harness events to a private journal. One deadline signal covers session
+creation, setup, streaming, verification, and workspace capture.
+
 Only an allow-listed sanitized summary may be written to the dashboard data
 file. Prompts, source code, tool inputs and outputs, actions, assertions,
 artifact URIs, model responses, and failure details remain outside the hosted
@@ -37,5 +49,9 @@ URLs, commands, prompts, or credentials from HTTP requests.
 - Every condition begins from the same pinned repository revision.
 - Raw and managed source evidence reaches the selected isolated sandbox but is
   not persisted by the dashboard.
+- Provider failures retain a local evidence journal and do not publish a
+  sanitized summary.
+- Estimated context reduction is distinct from provider-reported input-token
+  reduction; missing measurements remain unknown.
 - The dashboard can be deployed safely with an empty or sanitized result set.
 - Multi-checkpoint live trajectories remain future work.

@@ -12,7 +12,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "pretest": "pnpm --filter @acm/core build && pnpm --filter @acm/context-assembler build && pnpm --filter @acm/evaluation build && pnpm --filter @acm/harness-port build",
+    "pretest": "pnpm --filter @acm/core build && pnpm --filter @acm/reducers build && pnpm --filter @acm/context-assembler build && pnpm --filter @acm/evaluation build && pnpm --filter @acm/harness-port build",
     "test": "vitest run --pool=forks --maxWorkers=1",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
@@ -21,6 +21,7 @@
     "@acm/core": "workspace:*",
     "@acm/evaluation": "workspace:*",
     "@acm/harness-port": "workspace:*",
+    "@acm/reducers": "workspace:*",
     "zod": "^4.1.5"
   }
 }

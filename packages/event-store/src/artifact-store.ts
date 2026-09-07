@@ -10,7 +10,7 @@ import {
   unlink,
 } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
-import { Transform } from 'node:stream';
+import { Readable } from 'node:stream';
 
 import { ArtifactUriSchema } from '@acm/core';
 
@@ -159,25 +159,45 @@ export class LocalArtifactStore implements ArtifactStore {
     const digest = this.parseUri(uri);
     const handle = await this.openArtifactFile(digest, uri);
     const hash = createHash('sha256');
-    const verifier = new Transform({
-      transform(chunk: Buffer, _encoding, callback): void {
-        hash.update(chunk);
-        callback(null, chunk);
+    // Read only on consumer demand. Eager piping can finish verification and
+    // emit an unhandled error while the caller is still awaiting other work.
+    return new Readable({
+      read(size): void {
+        const chunk = Buffer.allocUnsafe(
+          Math.max(1, Math.min(size, 64 * 1024)),
+        );
+        void handle.read(chunk).then(
+          ({ bytesRead }) => {
+            if (this.destroyed) return;
+            if (bytesRead > 0) {
+              const bytes = chunk.subarray(0, bytesRead);
+              hash.update(bytes);
+              this.push(bytes);
+              return;
+            }
+            const actualDigest = hash.digest('hex');
+            if (actualDigest !== digest) {
+              this.destroy(
+                new ArtifactIntegrityError(
+                  `Artifact digest mismatch for ${uri}: observed sha256/${actualDigest}`,
+                ),
+              );
+              return;
+            }
+            this.push(null);
+          },
+          (error: Error) => this.destroy(error),
+        );
       },
-      flush(callback): void {
-        const actualDigest = hash.digest('hex');
-        callback(
-          actualDigest === digest
-            ? undefined
-            : new ArtifactIntegrityError(
-                `Artifact digest mismatch for ${uri}: observed sha256/${actualDigest}`,
-              ),
+      destroy(error, callback): void {
+        // This also closes an opened-but-unconsumed stream and waits for any
+        // pending read to finish before reporting close to the consumer.
+        void handle.close().then(
+          () => callback(error),
+          (closeError: Error) => callback(error ?? closeError),
         );
       },
     });
-    const source = handle.createReadStream({ autoClose: true });
-    source.once('error', (error) => verifier.destroy(error));
-    return source.pipe(verifier);
   }
 
   async verify(uri: string): Promise<StoredArtifact> {

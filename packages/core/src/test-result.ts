@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { JsonValueSchema } from './json.js';
+
 export const Sha256DigestSchema = z.string().regex(/^[0-9a-f]{64}$/);
 export const ArtifactUriSchema = z
   .string()
@@ -18,6 +20,8 @@ export const TestCountsSchema = z
 export const TestFailureSchema = z
   .object({
     testName: z.string().min(1),
+    scope: z.literal('suite').optional(),
+    suiteStatus: z.string().optional(),
     file: z.string().min(1).optional(),
     line: z.number().int().positive().optional(),
     column: z.number().int().positive().optional(),
@@ -45,6 +49,8 @@ export const TestResultObservationV1Schema = z
     exitCode: z.number().int().optional(),
     success: z.boolean().optional(),
     reportedCounts: TestCountsSchema.optional(),
+    reportedSuiteCounts: TestCountsSchema.optional(),
+    snapshot: JsonValueSchema.optional(),
     observedCounts: TestCountsSchema.optional(),
     failures: z.array(TestFailureSchema),
     diagnostics: z.array(ReductionDiagnosticSchema),
@@ -61,6 +67,8 @@ export const ReducedTestResultV1Schema = z
     exitCode: z.number().int().optional(),
     success: z.boolean().optional(),
     reportedCounts: TestCountsSchema.optional(),
+    reportedSuiteCounts: TestCountsSchema.optional(),
+    snapshot: JsonValueSchema.optional(),
     observedCounts: TestCountsSchema.optional(),
     failures: z.array(TestFailureSchema),
     diagnostics: z.array(ReductionDiagnosticSchema),

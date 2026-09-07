@@ -42,7 +42,7 @@ Usage:
   acm eval validate <experiment.json>
   acm eval run <experiment.json> [--output <result.json>] [--report <report.md>]
   acm hosted validate <plan.json>
-  acm hosted run <plan.json> --output <result.json> [--summary <summary.json>] [--dashboard-data <dataset.json>]
+  acm hosted run <plan.json> --output <result.json> [--trace <trace.jsonl>] [--summary <summary.json>] [--dashboard-data <dataset.json>] [--data-dir <path>]
   acm doctor
 
 Reduce options:

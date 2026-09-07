@@ -206,8 +206,36 @@ function renderRawContext(checkpoint: ReplayCheckpointV1): string {
   });
 }
 
+function assembleManagedCheckpoint(
+  checkpoint: ReplayCheckpointV1,
+  estimator: TokenEstimator,
+) {
+  return assembleContext({
+    state: checkpoint.state,
+    pinnedInstructions: checkpoint.instructions,
+    observations: checkpoint.observations
+      .filter((observation) => observation.managedExclusion === undefined)
+      .map((observation) => ({
+        candidate: observation.managedCandidate,
+        safeForContext: observation.safeForContext,
+      })),
+    preExcludedCandidates: checkpoint.observations.flatMap((observation) =>
+      observation.managedExclusion === undefined
+        ? []
+        : [
+            {
+              id: observation.managedCandidate.id,
+              reason: observation.managedExclusion,
+            },
+          ],
+    ),
+    tokenBudget: checkpoint.tokenBudget,
+    tokenEstimator: estimator,
+  });
+}
+
 export function prepareEvaluationCheckpointContexts(
-  checkpointInput: ReplayCheckpointV1,
+  checkpoint: ReplayCheckpointV1,
   estimator: TokenEstimator,
 ): {
   rawContextText: string;
@@ -215,19 +243,9 @@ export function prepareEvaluationCheckpointContexts(
   rawTokenEstimate: number;
   managedTokenEstimate: number;
 } {
-  const checkpoint = checkpointInput;
   validateCheckpoint(checkpoint);
   const rawContextText = renderRawContext(checkpoint);
-  const managed = assembleContext({
-    state: checkpoint.state,
-    pinnedInstructions: checkpoint.instructions,
-    observations: checkpoint.observations.map((observation) => ({
-      candidate: observation.managedCandidate,
-      safeForContext: observation.safeForContext,
-    })),
-    tokenBudget: checkpoint.tokenBudget,
-    tokenEstimator: estimator,
-  });
+  const managed = assembleManagedCheckpoint(checkpoint, estimator);
   return {
     rawContextText,
     managedContextText: managed.contextText,
@@ -335,7 +353,8 @@ function targetAgreement(
 
 export function countRepeatedActions(
   actions: readonly RecordedActionV1[],
-): number {
+): number | null {
+  if (actions.some((entry) => entry.workspaceRevision === null)) return null;
   const counts = new Map<string, number>();
   let repeated = 0;
   for (const entry of actions) {
@@ -385,6 +404,38 @@ function median(values: readonly number[]): number | null {
   return round((sorted[middle - 1]! + sorted[middle]!) / 2);
 }
 
+function reductionPercent(raw: number, managed: number): number | null {
+  return raw === 0 ? null : round(((raw - managed) / raw) * 100);
+}
+
+function sumAvailable(values: readonly (number | null)[]): number | null {
+  if (values.some((value) => value === null)) return null;
+  return values.reduce<number>((sum, value) => sum + value!, 0);
+}
+
+function measuredInputTokenAggregate(cases: readonly EvaluationCaseResultV1[]) {
+  const pairs = cases.flatMap((evaluationCase) => {
+    const raw = evaluationCase.rawMeasurements.inputTokens;
+    const managed = evaluationCase.managedMeasurements.inputTokens;
+    return raw === undefined || managed === undefined ? [] : [{ raw, managed }];
+  });
+  const raw = pairs.reduce((sum, pair) => sum + pair.raw, 0);
+  const managed = pairs.reduce((sum, pair) => sum + pair.managed, 0);
+  return {
+    measuredInputTokenCaseCount: pairs.length,
+    rawMeasuredInputTokens: pairs.length === 0 ? null : raw,
+    managedMeasuredInputTokens: pairs.length === 0 ? null : managed,
+    measuredInputTokenReductionPercent:
+      pairs.length === 0 ? null : reductionPercent(raw, managed),
+    medianMeasuredInputTokenReductionPercent: median(
+      pairs.flatMap((pair) => {
+        const reduction = reductionPercent(pair.raw, pair.managed);
+        return reduction === null ? [] : [reduction];
+      }),
+    ),
+  };
+}
+
 function checkpointResult(
   evaluationCase: EvaluationCaseV1,
   checkpoint: ReplayCheckpointV1,
@@ -392,16 +443,7 @@ function checkpointResult(
 ): { result: EvaluationCheckpointResultV1; failures: PolicyFailureV1[] } {
   validateCheckpoint(checkpoint);
   const rawContextText = renderRawContext(checkpoint);
-  const managed = assembleContext({
-    state: checkpoint.state,
-    pinnedInstructions: checkpoint.instructions,
-    observations: checkpoint.observations.map((observation) => ({
-      candidate: observation.managedCandidate,
-      safeForContext: observation.safeForContext,
-    })),
-    tokenBudget: checkpoint.tokenBudget,
-    tokenEstimator: estimator,
-  });
+  const managed = assembleManagedCheckpoint(checkpoint, estimator);
   const visible = visibleEventIds(checkpoint);
   const managedItems = parseRenderedContext(managed.contextText);
   for (const item of managedItems.values()) {
@@ -432,7 +474,7 @@ function checkpointResult(
       );
     }
   }
-  const tokenReduction = rawTokenEstimate - managedTokenEstimate;
+  const estimatedTokenReduction = rawTokenEstimate - managedTokenEstimate;
   const criticalFields = criticalFieldResults(checkpoint, managed.contextText);
   const exactNextActionAgreement =
     actionFingerprint(rawAction) === actionFingerprint(managedAction);
@@ -440,11 +482,11 @@ function checkpointResult(
     checkpointId: checkpoint.id,
     rawTokenEstimate,
     managedTokenEstimate,
-    tokenReduction,
-    tokenReductionPercent:
-      rawTokenEstimate === 0
-        ? null
-        : round((tokenReduction / rawTokenEstimate) * 100),
+    estimatedTokenReduction,
+    estimatedTokenReductionPercent: reductionPercent(
+      rawTokenEstimate,
+      managedTokenEstimate,
+    ),
     forcedCompaction: checkpoint.forcedCompaction,
     recoveryPassed: checkpoint.forcedCompaction
       ? exactNextActionAgreement &&
@@ -546,7 +588,11 @@ export function evaluateExperiment(
     const managedRepeatedActionCount = countRepeatedActions(
       evaluationCase.managedEvidence.actions,
     );
-    if (managedRepeatedActionCount > rawRepeatedActionCount) {
+    if (
+      rawRepeatedActionCount !== null &&
+      managedRepeatedActionCount !== null &&
+      managedRepeatedActionCount > rawRepeatedActionCount
+    ) {
       policyFailures.push({
         kind: 'repeated-work-increase',
         caseId: evaluationCase.id,
@@ -610,14 +656,16 @@ export function evaluateExperiment(
     status: policyFailures.length === 0 ? ('pass' as const) : ('fail' as const),
     cases,
     aggregate: {
+      caseCount: cases.length,
       checkpointCount: checkpoints.length,
-      medianTokenReductionPercent: median(
+      medianEstimatedContextReductionPercent: median(
         checkpoints.flatMap((checkpoint) =>
-          checkpoint.tokenReductionPercent === null
+          checkpoint.estimatedTokenReductionPercent === null
             ? []
-            : [checkpoint.tokenReductionPercent],
+            : [checkpoint.estimatedTokenReductionPercent],
         ),
       ),
+      ...measuredInputTokenAggregate(cases),
       exactNextActionAgreements: exactAgreements,
       exactNextActionAgreementRate:
         checkpoints.length === 0
@@ -634,13 +682,11 @@ export function evaluateExperiment(
       baselineOnlyFailures: cases.filter(
         (item) => item.outcomeClassification === 'raw-only-success',
       ).length,
-      rawRepeatedActionCount: cases.reduce(
-        (sum, item) => sum + item.rawRepeatedActionCount,
-        0,
+      rawRepeatedActionCount: sumAvailable(
+        cases.map((item) => item.rawRepeatedActionCount),
       ),
-      managedRepeatedActionCount: cases.reduce(
-        (sum, item) => sum + item.managedRepeatedActionCount,
-        0,
+      managedRepeatedActionCount: sumAvailable(
+        cases.map((item) => item.managedRepeatedActionCount),
       ),
       forcedCompactionCheckpoints: checkpoints.filter(
         (checkpoint) => checkpoint.forcedCompaction,

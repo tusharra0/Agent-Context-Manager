@@ -39,10 +39,10 @@ function diagnostic(
   };
 }
 
-function tokenCount(value: unknown): number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+function tokenCount(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
     ? value
-    : 0;
+    : undefined;
 }
 
 function usageEvent(usage: unknown): HarnessEventDataV1 {
@@ -50,13 +50,24 @@ function usageEvent(usage: unknown): HarnessEventDataV1 {
   const inputTokens = tokenCount(usageRecord.inputTokens);
   const outputTokens = tokenCount(usageRecord.outputTokens);
   const reportedTotal = tokenCount(usageRecord.totalTokens);
+  if (
+    inputTokens === undefined ||
+    outputTokens === undefined ||
+    (usageRecord.totalTokens !== undefined && reportedTotal === undefined) ||
+    !Number.isSafeInteger(inputTokens + outputTokens)
+  ) {
+    return diagnostic(
+      'usage-unavailable',
+      'Complete valid input and output token usage was not reported for this turn.',
+      usage,
+    );
+  }
   const details = json(usage);
   return {
     kind: 'usage',
     inputTokens,
     outputTokens,
-    totalTokens:
-      reportedTotal === 0 ? inputTokens + outputTokens : reportedTotal,
+    totalTokens: reportedTotal ?? inputTokens + outputTokens,
     ...(details === undefined ? {} : { details }),
   };
 }

@@ -82,6 +82,17 @@ manifest as superseded. Raw file restoration also has one aggregate byte limit
 for the whole assembly: the smaller of the approximate context budget in bytes
 and 16 MiB. Newer file observations consume that allowance first.
 
+Before restoration, the shared `reconcileObservationEvents` policy checks
+durable file versions for the same path and path kind. A later whole-file hash
+that differs invalidates an older full read; an identical hash validates that
+full snapshot, including after a reverted edit. A recorded modification
+invalidates all older read scopes when their current content cannot be proved.
+Range hashes are never compared with whole-file hashes: a later whole-file
+version requires a fresh range read because its digest cannot validate the old
+range. File changes use their introduction sequence, so marking a prior state
+stale does not itself invent a new edit. Fresh reads remain eligible, and
+exclusions preserve the event and raw artifact in recoverable storage.
+
 ### Search output
 
 The supported source is ripgrep JSON lines. The parser retains query, root,
@@ -116,6 +127,14 @@ Failing test and build observations are classified as required active failures,
 including under mandatory budget overflow. If a failing report was only
 partially parsed, assembly includes a clearly marked incomplete structured
 failure with its artifact evidence instead of presenting it as complete.
+
+An explicit durable failure resolution can fold its observation into an optional
+completed outcome containing the full parsed report, resolution provenance, and
+raw artifact reference. The resolution must be later than the observation and
+reference the whole event (no JSON pointer, or `/payload`); resolving only one
+diagnostic cannot resolve a whole report. Any active failure linked to that
+event keeps the report mandatory. A later passing command or generic passing
+test status never automatically resolves unrelated or untracked failures.
 
 Optional candidates are considered deterministically by priority, newest
 sequence, then candidate ID. The exact canonical candidate envelope is measured

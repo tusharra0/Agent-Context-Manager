@@ -1,5 +1,50 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-27T00:00:00.000Z",
-  "experiments": []
+  "generatedAt": "2026-09-07T10:31:33.578Z",
+  "experiments": [
+    {
+      "schemaVersion": 1,
+      "experimentId": "phase5-vercel-smoke",
+      "createdAt": "2026-09-07T10:31:33.578Z",
+      "repositoryFixture": {
+        "id": "acm-phase4-public",
+        "revision": "40c8c6cedf5c48ed9fa2b667dfdc5cf0b6f20432"
+      },
+      "policyId": "priority-whole-item@1",
+      "tokenEstimatorId": "utf8-bytes-div-4@1",
+      "status": "pass",
+      "harness": "codex",
+      "model": "minimax/minimax-m2.7",
+      "contextSource": "typed-reducers",
+      "aggregate": {
+        "caseCount": 1,
+        "checkpointCount": 1,
+        "medianEstimatedContextReductionPercent": 21.89781,
+        "measuredInputTokenCaseCount": 1,
+        "rawMeasuredInputTokens": 33343,
+        "managedMeasuredInputTokens": 33175,
+        "measuredInputTokenReductionPercent": 0.503854,
+        "medianMeasuredInputTokenReductionPercent": 0.503854,
+        "exactNextActionAgreements": 1,
+        "exactNextActionAgreementRate": 1,
+        "criticalFieldsPreserved": 1,
+        "criticalFieldsTotal": 1,
+        "criticalFieldRecall": 1,
+        "rawTaskSuccesses": 1,
+        "managedTaskSuccesses": 1,
+        "baselineOnlyFailures": 0,
+        "rawRepeatedActionCount": null,
+        "managedRepeatedActionCount": null,
+        "forcedCompactionCheckpoints": 0,
+        "forcedCompactionRecoveries": 0
+      },
+      "policyFailureCounts": {
+        "missing-critical-field": 0,
+        "next-action-divergence": 0,
+        "baseline-success-managed-failure": 0,
+        "repeated-work-increase": 0,
+        "mandatory-overflow": 0
+      }
+    }
+  ]
 }

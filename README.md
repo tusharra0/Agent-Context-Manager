@@ -12,7 +12,9 @@ Code now run behind one project-owned harness contract. Their streamed text,
 tool activity, usage, completion, interruption, and errors normalize into
 versioned ACM events that can be converted directly into Phase 3 evidence.
 Authenticated hosted runs execute paired conditions in fresh Vercel Sandboxes,
-and a read-only Next.js dashboard accepts only sanitized aggregate results.
+derive managed checkpoints from the same typed reducers used locally, and keep
+private execution evidence in a durable local journal. A read-only Next.js
+dashboard accepts only sanitized aggregate results.
 
 ## Requirements
 
@@ -220,15 +222,37 @@ through AI Gateway, and applies deterministic verification commands:
 ```bash
 pnpm --filter @acm/cli dev -- hosted run hosted-plan.json \
   --output private-result.json \
+  --trace private-result.trace.jsonl \
   --summary sanitized-summary.json \
-  --dashboard-data apps/dashboard/data/results.json
+  --dashboard-data ../../apps/dashboard/data/results.json \
+  --data-dir .acm-data
 ```
 
-The full result is created exclusively with private file permissions and is
-never read by the dashboard. The dashboard dataset is an explicit allow-list:
+`hosted validate` performs schema, digest, provenance, policy, and estimator
+checks without contacting Vercel. A plan can use `contextSource:
+"typed-reducers"` with one typed `reductionInputs` entry per observation; ACM
+then parses the raw evidence and replaces any supplied managed candidate with
+the actual reducer output. The default `recorded-candidates` mode remains for
+legacy replay fixtures.
+
+Before a paid run begins, private result, summary, and trace paths are reserved
+exclusively, and an existing dashboard dataset is validated. The JSONL trace is
+synced as setup commands and harness events arrive. Raw observations are stored
+in the local content-addressed artifact store. If a provider run fails, the
+trace and a small error result remain available while no summary is published.
+
+The full result and trace are never read by the dashboard. The dashboard
+dataset is an explicit allow-list:
 it omits prompts, source, model responses, tool inputs and outputs, normalized
 actions, assertion evidence, and failure details. A policy failure exits with
 code 2 and remains visible in the private result and aggregate status.
+
+Estimated context reduction and provider-reported input-token reduction are
+reported separately. Measured fields are null when complete usage evidence is
+unavailable. Repeated-action counts are also null unless tool-time workspace
+revisions are authoritative. The current hosted slice evaluates one checkpoint
+per isolated task; it does not continuously replace a native harness's context
+throughout a multi-turn session.
 
 Local hosted runs require `vercel login`, a linked Vercel project, and fresh
 OIDC credentials from `vercel env pull`. Deployed Vercel workloads receive

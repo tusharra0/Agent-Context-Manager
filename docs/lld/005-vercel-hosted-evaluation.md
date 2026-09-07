@@ -32,10 +32,18 @@ A versioned plan contains an offline evaluation experiment plus:
 - Optional deterministic setup commands
 - One or more deterministic verification commands with stable assertion IDs
 - Harness and model selection
+- A context source: legacy recorded candidates or typed reducer inputs
 
 The MVP hosted runner requires one checkpoint per case. Raw and managed
 conditions receive the same task, fixture, model, verification oracle, and
 checkpoint cutoff. Only their rendered context differs.
+
+In `typed-reducers` mode, each raw observation has an explicit input kind and
+parser metadata. Plan preparation verifies its SHA-256 digest, invokes the real
+deterministic parser and reducer, reconciles stale file observations and
+resolved failures, and replaces the plan's supplied managed candidate. Unsafe
+or partial parses retain the verified raw text in managed context. The legacy
+`recorded-candidates` mode is retained for existing replay fixtures.
 
 ## Sandbox lifecycle
 
@@ -48,8 +56,19 @@ Each condition uses a fresh sandbox. Before the harness starts, the adapter:
    exit.
 
 After the agent turn, verification commands run in the same worktree. Their
-exit codes determine the task outcome. Raw stdout and stderr are not included
-in sanitized dashboard data. Session and sandbox cleanup runs in `finally`.
+exit codes determine the task outcome. One abort signal covers session creation,
+setup, streaming, verification, and workspace capture. A stream without a
+completed terminal event fails the condition. Session and sandbox cleanup runs
+in `finally`.
+
+Before creating a remote runner, the CLI validates the complete plan, validates
+an existing dashboard dataset, checks dashboard-directory writability, and
+reserves result, summary, and trace paths without overwriting them. Raw
+observations enter the local content-addressed artifact store. Commands and
+normalized harness events, including tool outputs and failures, are appended to
+a private JSONL journal and synced during execution. A failed run keeps that
+journal and writes an error envelope to the private result path; it does not
+publish a summary.
 
 ## AI Gateway
 
@@ -65,7 +84,8 @@ The dashboard summary allow-list contains only:
 - Experiment, fixture, policy, and estimator IDs
 - Creation time and pass/fail status
 - Harness/model labels
-- Aggregate token-reduction, agreement, recall, success, recovery, and
+- Aggregate estimated context reduction, measured input-token coverage and
+  reduction, agreement, recall, success, recovery, and
   repeated-work counts
 - Policy-failure counts grouped by failure kind
 
@@ -73,10 +93,17 @@ It excludes case tasks, prompts, actions, outcomes' assertion evidence,
 critical values, source event IDs, raw/managed measurements by case, and all
 tool content.
 
+Measured input-token fields are null unless both paired conditions provide one
+complete final usage record. Repeated-action fields are null when tool-time
+workspace revisions are unavailable. The current adapter can evaluate a paired
+checkpoint, but cannot continuously replace the native harness context during a
+multi-turn trajectory.
+
 ## Verification
 
 Credential-free tests cover plan validation, paired orchestration with fake
 condition runners, equal fixture/task inputs, cleanup behavior, result
-sanitization, private result creation, fixture command construction, and
+sanitization, typed reducer preparation, preflight output reservation, durable
+failure traces, fixture command construction, timeout cancellation, and
 dashboard view models. The authenticated `acm hosted run` command is the gated
 live smoke path for real Sandbox and HarnessAgent integration.

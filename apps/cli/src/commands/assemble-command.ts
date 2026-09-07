@@ -2,11 +2,12 @@ import { writeFile } from 'node:fs/promises';
 import { TextDecoder } from 'node:util';
 
 import { SessionIdSchema, canonicalJson } from '@acm/core';
-import type {
-  ContextExcludedCandidateV1,
-  PersistedAnyContextEventV1,
-} from '@acm/core';
-import { assembleContext } from '@acm/context-assembler';
+import type { DurableWorkingStateV1 } from '@acm/core';
+import {
+  assembleContext,
+  isFailureObservation,
+  reconcileObservationEvents,
+} from '@acm/context-assembler';
 import type { ObservationCandidate } from '@acm/context-assembler';
 import { LocalArtifactStore, SqliteMetadataStore } from '@acm/event-store';
 import type { RecordedAnyEvent } from '@acm/event-store';
@@ -34,60 +35,6 @@ async function collect(stream: NodeJS.ReadableStream): Promise<Buffer> {
     chunks.push(Buffer.from(value));
   }
   return Buffer.concat(chunks);
-}
-
-function fileIdentity(event: PersistedAnyContextEventV1): string | undefined {
-  if (event.kind !== 'file_read') return undefined;
-  return canonicalJson({
-    path: event.payload.path,
-    pathKind: event.payload.pathKind,
-    scope: event.payload.scope,
-  });
-}
-
-function latestFileReads(events: readonly RecordedAnyEvent[]): {
-  currentEventIds: ReadonlySet<string>;
-  excluded: ContextExcludedCandidateV1[];
-} {
-  const latestByIdentity = new Map<string, string>();
-  for (const recorded of events) {
-    const identity = fileIdentity(recorded.event);
-    if (identity) latestByIdentity.set(identity, recorded.event.id);
-  }
-  const currentEventIds = new Set(latestByIdentity.values());
-  const excluded = events.flatMap((recorded) => {
-    const identity = fileIdentity(recorded.event);
-    if (!identity || currentEventIds.has(recorded.event.id)) return [];
-    return [
-      {
-        id: `event:${recorded.event.id}`,
-        reason: 'superseded' as const,
-      },
-    ];
-  });
-  return { currentEventIds, excluded };
-}
-
-function isFailure(event: PersistedAnyContextEventV1): boolean {
-  if (event.kind === 'test_result') {
-    return (
-      event.payload.success === false ||
-      event.payload.failures.length > 0 ||
-      (event.payload.exitCode !== undefined && event.payload.exitCode !== 0)
-    );
-  }
-  if (event.kind === 'build_result') {
-    return (
-      event.payload.exitCode !== 0 ||
-      event.payload.buildDiagnostics.some(
-        (diagnostic) => diagnostic.category === 'error',
-      )
-    );
-  }
-  if (event.kind === 'search_result') {
-    return event.payload.exitCode !== undefined && event.payload.exitCode > 1;
-  }
-  return false;
 }
 
 function incompleteFailureText(recorded: RecordedAnyEvent): string {
@@ -167,21 +114,46 @@ async function fileObservation(
   };
 }
 
-function nonFileObservation(recorded: RecordedAnyEvent): ObservationCandidate {
+function nonFileObservation(
+  recorded: RecordedAnyEvent,
+  state: DurableWorkingStateV1,
+  resolved: boolean,
+): ObservationCandidate {
   if (!recorded.reduction) {
     throw new TypeError('Observation event is missing its reduction.');
   }
-  const failure = isFailure(recorded.event);
+  const failure = isFailureObservation(recorded.event);
   const safeForContext = failure || recorded.reduction.safeForContext;
   return {
     safeForContext,
     candidate: {
       id: `event:${recorded.event.id}`,
-      class: failure ? 'active-failure' : 'recent-observation',
-      required: failure,
+      class: resolved
+        ? 'completed-outcome'
+        : failure
+          ? 'active-failure'
+          : 'recent-observation',
+      required: failure && !resolved,
       sequence: recorded.event.sequence,
-      text:
-        failure && !recorded.reduction.safeForContext
+      text: resolved
+        ? canonicalJson({
+            kind: 'resolved-failure',
+            eventKind: recorded.event.kind,
+            observation: recorded.event.payload,
+            resolutions: state.failures.filter(
+              (item) =>
+                item.status === 'resolved' &&
+                item.provenance.some(
+                  (reference) => reference.sourceEventId === recorded.event.id,
+                ),
+            ),
+            evidence: {
+              rawArtifactUri: recorded.event.rawArtifactUri,
+              contentHash: recorded.event.contentHash,
+              byteLength: recorded.event.byteLength,
+            },
+          })
+        : failure && !recorded.reduction.safeForContext
           ? incompleteFailureText(recorded)
           : recorded.reduction.reducedText,
       sourceEventIds: [recorded.event.id],
@@ -221,7 +193,10 @@ export async function assembleCommand(
   try {
     const state = store.verifyWorkingState(sessionId);
     const events = store.listSessionEvents(sessionId);
-    const latestFiles = latestFileReads(events);
+    const reconciled = reconcileObservationEvents(
+      state,
+      events.map((recorded) => recorded.event),
+    );
     const observations: ObservationCandidate[] = [];
     const artifactStore = new LocalArtifactStore(configuration.artifactRoot);
     const budgetBytes =
@@ -240,7 +215,8 @@ export async function assembleCommand(
     )) {
       if (!recorded.reduction) continue;
       if (recorded.event.kind === 'file_read') {
-        if (!latestFiles.currentEventIds.has(recorded.event.id)) continue;
+        if (!reconciled.currentFileReadEventIds.has(recorded.event.id))
+          continue;
         const prepared = await fileObservation(
           recorded,
           artifactStore,
@@ -249,14 +225,20 @@ export async function assembleCommand(
         remainingRestorationBytes -= prepared.restoredBytes;
         observations.push(prepared.observation);
       } else {
-        observations.push(nonFileObservation(recorded));
+        observations.push(
+          nonFileObservation(
+            recorded,
+            state,
+            reconciled.resolvedFailureEventIds.has(recorded.event.id),
+          ),
+        );
       }
     }
 
     const assembled = assembleContext({
       state,
       observations,
-      preExcludedCandidates: latestFiles.excluded,
+      preExcludedCandidates: reconciled.excludedCandidates,
       tokenBudget,
       tokenEstimator: { id: TOKEN_ESTIMATOR_ID, estimate: estimateTokens },
     });

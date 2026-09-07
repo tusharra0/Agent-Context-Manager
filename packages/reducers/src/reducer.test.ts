@@ -49,7 +49,7 @@ describe('VitestJsonReducer', () => {
     });
     expect(first.reducedText).toBe(second.reducedText);
     expect(first.reducerId).toBe('test-result/vitest-json');
-    expect(first.reducerVersion).toBe('1.0.0');
+    expect(first.reducerVersion).toBe('1.1.0');
     expect(first.safeForContext).toBe(true);
     expect(first.preservedFields).toContain('/failures/0/failureMessages');
     expect(canonicalJson(JSON.parse(first.reducedText))).toBe(
@@ -66,6 +66,54 @@ describe('VitestJsonReducer', () => {
     expect(JSON.parse(result.reducedText)).toMatchObject({
       safeForContext: false,
       diagnostics: [{ code: 'INVALID_JSON' }],
+    });
+  });
+
+  it('keeps suite failures, reporter counts and snapshot evidence in active context', async () => {
+    const payload = parseVitestJson(
+      Buffer.from(
+        JSON.stringify({
+          success: false,
+          numTotalTestSuites: 1,
+          numFailedTestSuites: 1,
+          snapshot: { failure: true, filesUnmatched: 1 },
+          testResults: [
+            {
+              name: 'suite.test.ts',
+              status: 'failed',
+              message: 'suite setup failed',
+              assertionResults: [],
+            },
+          ],
+        }),
+      ),
+    );
+    const reduced = await new VitestJsonReducer().reduce(event(payload));
+    expect(reduced.safeForContext).toBe(true);
+    expect(JSON.parse(reduced.reducedText)).toMatchObject({
+      reportedSuiteCounts: payload.reportedSuiteCounts,
+      snapshot: payload.snapshot,
+      failures: payload.failures,
+      evidence: { rawArtifactUri: `artifact://sha256/${DIGEST}` },
+    });
+    expect(reduced.preservedFields).toContain('/failures/0/scope');
+    expect(reduced.preservedFields).toContain('/failures/0/failureMessages/0');
+  });
+
+  it('requires restoration for unsupported reporter fields that may contain failures', async () => {
+    const payload = parseVitestJson(
+      Buffer.from(
+        JSON.stringify({
+          testResults: [],
+          unhandledErrors: [{ message: 'unhandled rejection' }],
+        }),
+      ),
+    );
+    const reduced = await new VitestJsonReducer().reduce(event(payload));
+    expect(reduced.safeForContext).toBe(false);
+    expect(JSON.parse(reduced.reducedText)).toMatchObject({
+      diagnostics: [{ code: 'UNKNOWN_FIELD', jsonPath: '/unhandledErrors' }],
+      evidence: { rawArtifactUri: `artifact://sha256/${DIGEST}` },
     });
   });
 

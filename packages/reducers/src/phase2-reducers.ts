@@ -135,16 +135,9 @@ export class FileReadReducer implements ContextReducer {
   }
 }
 
-type RipgrepValue = {
-  type?: unknown;
-  data?: {
-    path?: { text?: unknown };
-    lines?: { text?: unknown };
-    line_number?: unknown;
-    submatches?: { start?: unknown; end?: unknown }[];
-    stats?: { matches?: unknown };
-  };
-};
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
 
 export type SearchParseMetadata = {
   query: string;
@@ -193,9 +186,9 @@ export function parseRipgrepJson(
 
   for (const [index, line] of text.split(/\r?\n/u).entries()) {
     if (!line.trim()) continue;
-    let value: RipgrepValue;
+    let value: unknown;
     try {
-      value = JSON.parse(line) as RipgrepValue;
+      value = JSON.parse(line);
     } catch {
       diagnostics.push({
         code: 'INVALID_JSON_LINE',
@@ -204,12 +197,23 @@ export function parseRipgrepJson(
       });
       continue;
     }
+    if (!isRecord(value) || !isRecord(value.data)) {
+      diagnostics.push({
+        code: 'INVALID_RECORD',
+        message: `Line ${index + 1} must contain a ripgrep object with object data.`,
+        jsonPath: `/${index}`,
+      });
+      continue;
+    }
     if (value.type === 'match') {
-      const path = value.data?.path?.text;
-      const lineText = value.data?.lines?.text;
-      const lineNumber = value.data?.line_number;
+      const path = isRecord(value.data.path) ? value.data.path.text : undefined;
+      const lineText = isRecord(value.data.lines)
+        ? value.data.lines.text
+        : undefined;
+      const lineNumber = value.data.line_number;
       if (
         typeof path !== 'string' ||
+        path.length === 0 ||
         typeof lineText !== 'string' ||
         !Number.isSafeInteger(lineNumber) ||
         (lineNumber as number) <= 0
@@ -221,7 +225,16 @@ export function parseRipgrepJson(
         });
         continue;
       }
-      const submatches = value.data?.submatches ?? [];
+      const submatches =
+        value.data.submatches === undefined ? [] : value.data.submatches;
+      if (!Array.isArray(submatches)) {
+        diagnostics.push({
+          code: 'INVALID_SUBMATCH',
+          message: `Line ${index + 1} must contain an array of submatches.`,
+          jsonPath: `/${index}/data/submatches`,
+        });
+        continue;
+      }
       if (submatches.length === 0) {
         const match: SearchMatchV1 = {
           path,
@@ -230,7 +243,15 @@ export function parseRipgrepJson(
         };
         matches.set(canonicalJson(match), match);
       }
-      for (const submatch of submatches) {
+      for (const [submatchIndex, submatch] of submatches.entries()) {
+        if (!isRecord(submatch)) {
+          diagnostics.push({
+            code: 'INVALID_SUBMATCH',
+            message: `Line ${index + 1} contains a submatch that is not an object.`,
+            jsonPath: `/${index}/data/submatches/${submatchIndex}`,
+          });
+          continue;
+        }
         const start = submatch.start;
         const end = submatch.end;
         if (
@@ -268,7 +289,9 @@ export function parseRipgrepJson(
         matches.set(canonicalJson(match), match);
       }
     } else if (value.type === 'summary') {
-      const count = value.data?.stats?.matches;
+      const count = isRecord(value.data.stats)
+        ? value.data.stats.matches
+        : undefined;
       if (Number.isSafeInteger(count) && (count as number) >= 0) {
         reportedMatchCount = count as number;
       } else {

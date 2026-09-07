@@ -135,6 +135,9 @@ importers:
       '@acm/harness-port':
         specifier: workspace:*
         version: link:../harness-port
+      '@acm/reducers':
+        specifier: workspace:*
+        version: link:../reducers
       zod:
         specifier: ^4.1.5
         version: 4.4.3

@@ -254,6 +254,10 @@ function assertReductionConsistency(
     ...(payload.reportedCounts
       ? { reportedCounts: payload.reportedCounts }
       : {}),
+    ...(payload.reportedSuiteCounts
+      ? { reportedSuiteCounts: payload.reportedSuiteCounts }
+      : {}),
+    ...(payload.snapshot !== undefined ? { snapshot: payload.snapshot } : {}),
     ...(payload.observedCounts
       ? { observedCounts: payload.observedCounts }
       : {}),

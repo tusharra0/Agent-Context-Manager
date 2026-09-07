@@ -66,6 +66,11 @@ export default function HomePage() {
                   <p className="eyebrow">
                     {experiment.harness} · {experiment.model}
                   </p>
+                  <p className="eyebrow">
+                    {experiment.contextSource === 'typed-reducers'
+                      ? 'Typed reducer checkpoint evaluation'
+                      : 'Supplied candidate checkpoint comparison'}
+                  </p>
                   <h3>{experiment.experimentId}</h3>
                 </div>
                 <span className={`resultBadge ${experiment.status}`}>

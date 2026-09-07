@@ -10,6 +10,7 @@ import {
   type AgentHarnessSession,
   type CreateHarnessSessionInputV1,
   type HarnessEventDataV1,
+  type HarnessExecutionOptions,
   type HarnessKind,
   type HarnessSessionDriver,
   type HarnessTurnInputV1,
@@ -90,7 +91,9 @@ export class VercelHarnessPort implements AgentHarnessPort {
 
   async createSession(
     input: CreateHarnessSessionInputV1,
+    execution: HarnessExecutionOptions = {},
   ): Promise<AgentHarnessSession> {
+    execution.abortSignal?.throwIfAborted();
     const parsedInput = CreateHarnessSessionInputV1Schema.parse(input);
     const client =
       this.options.clientFactory?.(parsedInput) ??
@@ -110,13 +113,15 @@ export class VercelHarnessPort implements AgentHarnessPort {
           ? {}
           : { sandboxConfig: this.options.sandboxConfig }),
       });
-    const controller = new AbortController();
     const vendorSession = await client.createSession({
       sessionId: parsedInput.sessionId,
-      abortSignal: controller.signal,
+      ...(execution.abortSignal === undefined
+        ? {}
+        : { abortSignal: execution.abortSignal }),
     });
     const driver = new VercelHarnessDriver(client, vendorSession);
     try {
+      execution.abortSignal?.throwIfAborted();
       return new ManagedAgentHarnessSession(driver, {
         sessionId: parsedInput.sessionId,
         harness: this.harness,

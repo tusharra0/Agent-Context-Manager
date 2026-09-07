@@ -178,6 +178,34 @@ function exerciseAdapter(harness: HarnessKind): void {
       await session.destroy();
       expect(destroy).toHaveBeenCalledOnce();
     });
+
+    it('forwards cancellation during session creation and cleans up a late session', async () => {
+      const controller = new AbortController();
+      const destroy = vi.fn(async () => undefined);
+      const createSession = vi.fn(
+        async (options: { abortSignal?: AbortSignal }) => {
+          controller.abort('deadline-exceeded');
+          expect(options.abortSignal).toBe(controller.signal);
+          return { sessionId: 'vendor-late', destroy };
+        },
+      );
+      const client: VercelHarnessClient = {
+        createSession,
+        stream: async () => (async function* () {})(),
+      };
+      const port = new VercelHarnessPort({
+        harness,
+        clientFactory: () => client,
+      });
+
+      await expect(
+        port.createSession(
+          { schemaVersion: 1, sessionId: SESSION_ID },
+          { abortSignal: controller.signal },
+        ),
+      ).rejects.toThrow();
+      expect(destroy).toHaveBeenCalledOnce();
+    });
   });
 }
 

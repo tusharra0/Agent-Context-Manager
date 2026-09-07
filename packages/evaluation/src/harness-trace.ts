@@ -89,9 +89,14 @@ function actionKind(toolName: string, input: JsonValue) {
     return 'search' as const;
   }
   if (
-    ['write', 'edit', 'edit-file', 'apply-patch', 'file-change'].includes(
-      normalized,
-    )
+    [
+      'write',
+      'edit',
+      'edit-file',
+      'apply-patch',
+      'file-change',
+      'filechange',
+    ].includes(normalized)
   ) {
     return 'edit-file' as const;
   }
@@ -126,13 +131,17 @@ export function normalizeHarnessToolCall(
   });
 }
 
-function actionsForTurn(turn: HarnessTraceTurnV1): NormalizedAgentActionV1[] {
+function actionsForTurn(turn: HarnessTraceTurnV1): RecordedActionV1[] {
   const calls = turn.events
     .filter(
       (event): event is Extract<HarnessEventV1, { kind: 'tool-call' }> =>
         event.kind === 'tool-call',
     )
-    .map(normalizeHarnessToolCall);
+    .map((event) => ({
+      action: normalizeHarnessToolCall(event),
+      // A turn-level snapshot cannot establish the workspace before each tool.
+      workspaceRevision: event.workspaceRevision ?? null,
+    }));
   if (calls.length > 0) return calls;
 
   const text = turn.events
@@ -144,23 +153,29 @@ function actionsForTurn(turn: HarnessTraceTurnV1): NormalizedAgentActionV1[] {
     .join('');
   if (text.length > 0) {
     return [
-      NormalizedAgentActionV1Schema.parse({
-        kind: 'respond',
-        name: 'assistant-response',
-        arguments: { text },
-        targets: [],
-      }),
+      {
+        action: NormalizedAgentActionV1Schema.parse({
+          kind: 'respond',
+          name: 'assistant-response',
+          arguments: { text },
+          targets: [],
+        }),
+        workspaceRevision: turn.workspaceRevision,
+      },
     ];
   }
 
   if (turn.events.some((event) => event.kind === 'turn-completed')) {
     return [
-      NormalizedAgentActionV1Schema.parse({
-        kind: 'finish',
-        name: 'turn-completed',
-        arguments: null,
-        targets: [],
-      }),
+      {
+        action: NormalizedAgentActionV1Schema.parse({
+          kind: 'finish',
+          name: 'turn-completed',
+          arguments: null,
+          targets: [],
+        }),
+        workspaceRevision: turn.workspaceRevision,
+      },
     ];
   }
   return [];
@@ -174,11 +189,14 @@ export function buildConditionEvidenceFromHarnessTrace(
   let previousSequence = 0;
   let inputTokens = 0;
   let outputTokens = 0;
-  let sawUsage = false;
+  let completeUsage = parsedInput.turns.length > 0;
   const actions: RecordedActionV1[] = [];
   const checkpointActions: ConditionEvidenceV1['checkpointActions'] = [];
 
   for (const turn of parsedInput.turns) {
+    let usageEvents = 0;
+    let turnCompleted = false;
+    let interrupted = false;
     for (const event of turn.events) {
       if (event.harness !== parsedInput.harness) {
         throw new TypeError(
@@ -190,21 +208,22 @@ export function buildConditionEvidenceFromHarnessTrace(
       }
       previousSequence = event.sequence;
       if (event.kind === 'usage') {
-        sawUsage = true;
+        usageEvents += 1;
         inputTokens += event.inputTokens;
         outputTokens += event.outputTokens;
       }
+      if (event.kind === 'turn-completed') turnCompleted = true;
+      if (event.kind === 'interrupted' || event.kind === 'error') {
+        interrupted = true;
+      }
     }
+    // Partial or duplicate totals must never look like complete run usage.
+    completeUsage &&= usageEvents === 1 && turnCompleted && !interrupted;
 
     const turnActions = actionsForTurn(turn);
-    actions.push(
-      ...turnActions.map((action) => ({
-        action,
-        workspaceRevision: turn.workspaceRevision,
-      })),
-    );
+    actions.push(...turnActions);
     if (turn.checkpointId !== undefined) {
-      const nextAction = turnActions[0];
+      const nextAction = turnActions[0]?.action;
       if (nextAction === undefined) {
         throw new TypeError(
           `Checkpoint ${turn.checkpointId} has no normalized next action.`,
@@ -227,7 +246,7 @@ export function buildConditionEvidenceFromHarnessTrace(
     checkpointActions,
     actions,
     outcome: parsedInput.outcome,
-    ...(sawUsage
+    ...(completeUsage
       ? {
           inputTokens,
           outputTokens,

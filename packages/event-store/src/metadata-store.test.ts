@@ -133,6 +133,48 @@ describe('SqliteMetadataStore', () => {
     store.close();
   });
 
+  it('persists suite errors and reporter evidence and rejects a reduction that drops them', async () => {
+    const path = await databasePath();
+    let store = new SqliteMetadataStore(path);
+    store.createSession({ id: SESSION_ID, createdAt: NOW });
+    const input = reductionInput(EVENT_1);
+    const suiteEvidence = {
+      reportedSuiteCounts: { total: 1, failed: 1 },
+      snapshot: { failure: false, uncheckedKeysByFile: [] },
+      failures: [
+        {
+          scope: 'suite' as const,
+          suiteStatus: 'failed',
+          testName: 'src/import.test.ts',
+          file: 'src/import.test.ts',
+          failureMessages: ['Cannot find module ./missing.js'],
+          stackFrames: [],
+        },
+      ],
+    };
+    input.payload = { ...input.payload, ...suiteEvidence };
+    expect(() => store.recordReduction(input)).toThrow(
+      'does not match its source payload',
+    );
+    input.reduction = {
+      ...input.reduction,
+      reducerVersion: '1.1.0',
+      reducedText: canonicalJson({
+        ...JSON.parse(input.reduction.reducedText),
+        ...suiteEvidence,
+      }),
+    };
+    store.recordReduction(input);
+    store.close();
+    store = new SqliteMetadataStore(path);
+    const recorded = store.getEvent(EVENT_1);
+    expect(recorded?.event.payload).toMatchObject(suiteEvidence);
+    expect(JSON.parse(recorded!.reduction.reducedText)).toMatchObject(
+      suiteEvidence,
+    );
+    store.close();
+  });
+
   it('deduplicates matching artifact metadata and rejects conflicts', async () => {
     const path = await databasePath();
     const store = new SqliteMetadataStore(path);

@@ -116,6 +116,57 @@ describe('normalizeVercelStreamPart', () => {
     ).toEqual([{ kind: 'error', message: 'connection lost' }]);
   });
 
+  it.each([
+    undefined,
+    null,
+    {},
+    { inputTokens: 12 },
+    { outputTokens: 4 },
+    { inputTokens: -1, outputTokens: 4 },
+    { inputTokens: 12, outputTokens: Number.NaN },
+    { inputTokens: 12, outputTokens: 4, totalTokens: -1 },
+  ])('keeps missing or invalid usage unavailable: %j', (totalUsage) => {
+    const events = normalizeVercelStreamPart({
+      type: 'finish',
+      finishReason: 'stop',
+      totalUsage,
+    });
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        kind: 'diagnostic',
+        code: 'usage-unavailable',
+      }),
+      { kind: 'turn-completed', finishReason: 'stop' },
+    ]);
+    expect(events.some((event) => event.kind === 'usage')).toBe(false);
+  });
+
+  it('preserves actual zero usage and computes only a missing total from known counts', () => {
+    expect(
+      normalizeVercelStreamPart({
+        type: 'finish',
+        totalUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      })[0],
+    ).toMatchObject({
+      kind: 'usage',
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    });
+    expect(
+      normalizeVercelStreamPart({
+        type: 'finish',
+        totalUsage: { inputTokens: 12, outputTokens: 4 },
+      })[0],
+    ).toMatchObject({
+      kind: 'usage',
+      inputTokens: 12,
+      outputTokens: 4,
+      totalTokens: 16,
+    });
+  });
+
   it('turns additive and malformed parts into diagnostics', () => {
     expect(
       normalizeVercelStreamPart({ type: 'future-part', value: 42 }),

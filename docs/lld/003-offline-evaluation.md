@@ -2,7 +2,7 @@
 
 **Status:** Implemented
 **Scope:** Phase 3 vertical slice
-**Last updated:** August 26, 2026
+**Last updated:** September 7, 2026
 
 ## Objective
 
@@ -35,6 +35,9 @@ checkpoints plus paired raw and managed run evidence. A checkpoint records:
 - Durable working state at that cutoff
 - Raw observation text and its SHA-256 digest
 - The managed candidate produced from the same observation
+- An optional `managedExclusion: "superseded"` when newer state invalidates an
+  observation; the raw baseline retains the original and the managed assembly
+  manifest records the exclusion
 - Critical-field assertions with source provenance and managed locators
 - An explicit context budget and estimator identity
 - Repository fixture identity and revision
@@ -59,7 +62,10 @@ final outcome. Recorded harness evidence requires both harness and model IDs.
 
 ## Metrics
 
-- Input-token difference and percentage reduction per checkpoint
+- Estimated context-token difference and percentage reduction per checkpoint
+- Measured input-token totals and percentage reduction across paired cases
+- Median measured input-token reduction across paired cases with a nonzero raw
+  token total, plus the count of cases with complete paired usage
 - Exact normalized next-action agreement
 - Action-kind and target agreement as diagnostics
 - Critical-field exact-value preservation and source-provenance retention
@@ -69,7 +75,38 @@ final outcome. Recorded harness evidence requires both harness and model IDs.
 
 An action is repeated only when its canonical kind, name, arguments, and target
 set recur under the same workspace revision. Re-running a command after a
-workspace change is not counted as repeated work.
+workspace change is not counted as repeated work. Tool-call trace events may
+carry an authoritative `workspaceRevision` at the action boundary. Missing or
+null revisions remain unknown; the final turn snapshot is never substituted
+for a tool's revision. If any recorded action revision is unknown, that
+condition's repeated-work count and its aggregate are null, and no repeated-work
+regression is inferred from unavailable counts. Recorded offline actions with
+explicit revisions remain comparable.
+
+Checkpoint estimates describe only the rendered checkpoint contexts. They do
+not measure the total tokens consumed by a model run. Result fields distinguish
+`estimatedTokenReduction` / `estimatedTokenReductionPercent` at checkpoints
+and `medianEstimatedContextReductionPercent` in the aggregate from measured
+input-token metrics. These explicit names replace the earlier ambiguous token
+reduction fields; previously saved result JSON should be regenerated from its
+experiment evidence before loading it into the dashboard.
+
+Measured aggregates use only cases where both conditions supply complete input
+usage. `measuredInputTokenCaseCount` and `caseCount` expose that coverage;
+`rawMeasuredInputTokens` and `managedMeasuredInputTokens` sum those same paired
+cases. `measuredInputTokenReductionPercent` compares these totals, while
+`medianMeasuredInputTokenReductionPercent` summarizes case percentages. No
+available pair means null totals and percentages. A measured zero is retained,
+but a zero raw denominator has no percentage reduction. Dashboard and reports
+show estimated context reduction separately from measured input-token reduction
+and display raw and managed success against the total case count.
+
+The harness bridge accepts a run's token total only when every turn completes
+without interruption and contains exactly one final usage event. Missing,
+invalid, duplicate, or incomplete usage remains unavailable rather than becoming
+zero or a partial run total. Vendor normalization records unavailable usage as
+a diagnostic and retains the completion event. Synthetic evidence remains
+identified as synthetic and does not establish live token-saving claims.
 
 ## Failure reports
 
@@ -96,6 +133,8 @@ never overwritten.
 - Mandatory critical-field recall is 100% in the deterministic fixture suite.
 - Every raw-success/managed-failure pair is reported as a policy regression.
 - Repeated-work measurement distinguishes unchanged and changed workspaces.
+- Missing per-action revisions and incomplete usage stay explicitly unavailable.
+- Equal measured token totals report 0% savings even if checkpoint estimates shrink.
 - Reports are byte-for-byte deterministic for identical inputs.
 - No model, network, credential, harness, or Vercel dependency is required.
 - `pnpm check` passes.

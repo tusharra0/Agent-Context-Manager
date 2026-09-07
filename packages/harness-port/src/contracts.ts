@@ -53,6 +53,7 @@ const ToolCallDataV1Schema = z
     toolCallId: z.string().min(1),
     toolName: z.string().min(1),
     input: JsonValueSchema,
+    workspaceRevision: z.string().min(1).nullable().optional(),
   })
   .strict();
 
@@ -162,11 +163,19 @@ export type HarnessTurnInputV1 = z.infer<typeof HarnessTurnInputV1Schema>;
 export type HarnessEventDataV1 = z.infer<typeof HarnessEventDataV1Schema>;
 export type HarnessEventV1 = z.infer<typeof HarnessEventV1Schema>;
 
+/** Runtime controls are separate from the serializable session/turn input. */
+export interface HarnessExecutionOptions {
+  abortSignal?: AbortSignal;
+}
+
 export interface AgentHarnessSession {
   readonly id: SessionId;
   readonly harness: HarnessKind;
   readonly startedEvent: HarnessEventV1;
-  stream(input: HarnessTurnInputV1): AsyncIterable<HarnessEventV1>;
+  stream(
+    input: HarnessTurnInputV1,
+    options?: HarnessExecutionOptions,
+  ): AsyncIterable<HarnessEventV1>;
   interrupt(reason?: string): Promise<void>;
   destroy(): Promise<HarnessEventV1>;
 }
@@ -175,6 +184,7 @@ export interface AgentHarnessPort {
   readonly harness: HarnessKind;
   createSession(
     input: CreateHarnessSessionInputV1,
+    options?: HarnessExecutionOptions,
   ): Promise<AgentHarnessSession>;
 }
 

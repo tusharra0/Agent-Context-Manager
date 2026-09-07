@@ -9,6 +9,7 @@ import {
   EvaluationExperimentV1Schema,
   countRepeatedActions,
   evaluateExperiment,
+  prepareEvaluationCheckpointContexts,
   renderEvaluationReport,
 } from './index.js';
 import type {
@@ -231,11 +232,20 @@ function experiment(): EvaluationExperimentV1 {
 }
 
 describe('offline paired evaluation', () => {
-  it('reports paired token reduction without losing behavior or critical fields', () => {
+  it('reports estimated context reduction without inventing measured token savings', () => {
     const result = evaluateExperiment(experiment(), ESTIMATOR);
 
     expect(result.status).toBe('pass');
-    expect(result.aggregate.medianTokenReductionPercent).toBeGreaterThan(0);
+    expect(
+      result.aggregate.medianEstimatedContextReductionPercent,
+    ).toBeGreaterThan(0);
+    expect(result.aggregate.measuredInputTokenCaseCount).toBe(0);
+    expect(result.aggregate.rawMeasuredInputTokens).toBeNull();
+    expect(result.aggregate.managedMeasuredInputTokens).toBeNull();
+    expect(result.aggregate.measuredInputTokenReductionPercent).toBeNull();
+    expect(
+      result.aggregate.medianMeasuredInputTokenReductionPercent,
+    ).toBeNull();
     expect(result.aggregate.exactNextActionAgreementRate).toBe(1);
     expect(result.aggregate.criticalFieldRecall).toBe(1);
     expect(result.aggregate.rawRepeatedActionCount).toBe(1);
@@ -243,6 +253,77 @@ describe('offline paired evaluation', () => {
     expect(result.aggregate.baselineOnlyFailures).toBe(0);
     expect(result.aggregate.forcedCompactionRecoveries).toBe(1);
     expect(result.policyFailures).toEqual([]);
+  });
+
+  it('reports zero measured savings for equal usage despite a shorter checkpoint', () => {
+    const input = experiment();
+    input.cases[0]!.rawEvidence.inputTokens = 100;
+    input.cases[0]!.managedEvidence.inputTokens = 100;
+
+    const result = evaluateExperiment(input, ESTIMATOR);
+
+    expect(result.aggregate).toMatchObject({
+      caseCount: 1,
+      measuredInputTokenCaseCount: 1,
+      rawMeasuredInputTokens: 100,
+      managedMeasuredInputTokens: 100,
+      measuredInputTokenReductionPercent: 0,
+      medianMeasuredInputTokenReductionPercent: 0,
+      rawTaskSuccesses: 1,
+      managedTaskSuccesses: 1,
+    });
+    expect(
+      result.aggregate.medianEstimatedContextReductionPercent,
+    ).toBeGreaterThan(0);
+    const report = renderEvaluationReport(result);
+    expect(report).toContain(
+      'Measured input-token reduction (covered pairs): 0.00%',
+    );
+    expect(report).toContain('Raw task successes: 1/1');
+    expect(report).toContain('Managed task successes: 1/1');
+  });
+
+  it('pairs measured case totals and reports coverage separately from checkpoint estimates', () => {
+    const input = experiment();
+    const first = input.cases[0]!;
+    first.rawEvidence.inputTokens = 100;
+    first.managedEvidence.inputTokens = 50;
+    const second = structuredClone(first);
+    second.id = 'second';
+    second.rawEvidence.inputTokens = 300;
+    second.managedEvidence.inputTokens = 270;
+    const unpaired = structuredClone(first);
+    unpaired.id = 'unpaired';
+    unpaired.rawEvidence.inputTokens = 1_000;
+    delete unpaired.managedEvidence.inputTokens;
+    input.cases.push(second, unpaired);
+
+    const result = evaluateExperiment(input, ESTIMATOR);
+
+    expect(result.aggregate).toMatchObject({
+      caseCount: 3,
+      measuredInputTokenCaseCount: 2,
+      rawMeasuredInputTokens: 400,
+      managedMeasuredInputTokens: 320,
+      measuredInputTokenReductionPercent: 20,
+      medianMeasuredInputTokenReductionPercent: 30,
+      rawTaskSuccesses: 3,
+      managedTaskSuccesses: 3,
+    });
+  });
+
+  it('preserves measured zero usage while leaving percentage reduction undefined', () => {
+    const input = experiment();
+    input.cases[0]!.rawEvidence.inputTokens = 0;
+    input.cases[0]!.managedEvidence.inputTokens = 0;
+
+    expect(evaluateExperiment(input, ESTIMATOR).aggregate).toMatchObject({
+      measuredInputTokenCaseCount: 1,
+      rawMeasuredInputTokens: 0,
+      managedMeasuredInputTokens: 0,
+      measuredInputTokenReductionPercent: null,
+      medianMeasuredInputTokenReductionPercent: null,
+    });
   });
 
   it('turns managed regressions into detailed policy failures', () => {
@@ -296,6 +377,28 @@ describe('offline paired evaluation', () => {
     );
   });
 
+  it('retains superseded observations in the raw baseline and records their managed exclusion', () => {
+    const input = experiment();
+    const checkpoint = input.cases[0]!.checkpoints[0]!;
+    checkpoint.observations[0]!.managedExclusion = 'superseded';
+
+    const contexts = prepareEvaluationCheckpointContexts(checkpoint, ESTIMATOR);
+    const result = evaluateExperiment(input, ESTIMATOR);
+
+    expect(contexts.rawContextText).toContain('noise');
+    expect(contexts.managedContextText).not.toContain('noise');
+    expect(JSON.parse(contexts.managedContextText).items).not.toContainEqual(
+      expect.objectContaining({ id: `event:${EVENT}` }),
+    );
+    expect(
+      result.cases[0]!.checkpointResults[0]!.manifest.excludedCandidates,
+    ).toContainEqual({ id: `event:${EVENT}`, reason: 'superseded' });
+    // Exclusion does not excuse losing a critical field declared by the case.
+    expect(result.policyFailures).toContainEqual(
+      expect.objectContaining({ kind: 'missing-critical-field' }),
+    );
+  });
+
   it('rejects incomparable token estimators', () => {
     expect(() =>
       evaluateExperiment(experiment(), {
@@ -341,13 +444,37 @@ describe('offline paired evaluation', () => {
     ).toBe(1);
   });
 
+  it('reports repeated work as unavailable when any action revision is unknown', () => {
+    expect(
+      countRepeatedActions([{ action: ACTION, workspaceRevision: null }]),
+    ).toBeNull();
+    const input = experiment();
+    input.cases[0]!.managedEvidence.actions = [
+      { action: ACTION, workspaceRevision: null },
+      { action: ACTION, workspaceRevision: null },
+    ];
+
+    const result = evaluateExperiment(input, ESTIMATOR);
+
+    expect(result.cases[0]!.managedRepeatedActionCount).toBeNull();
+    expect(result.aggregate.managedRepeatedActionCount).toBeNull();
+    expect(
+      result.policyFailures.some(
+        (failure) => failure.kind === 'repeated-work-increase',
+      ),
+    ).toBe(false);
+    expect(renderEvaluationReport(result)).toContain(
+      'Repeated actions, raw/managed: 1/n/a',
+    );
+  });
+
   it('renders deterministic human-readable reports', () => {
     const result = evaluateExperiment(experiment(), ESTIMATOR);
     const first = renderEvaluationReport(result);
     const second = renderEvaluationReport(result);
 
     expect(first).toBe(second);
-    expect(first).toContain('Median input-token reduction');
+    expect(first).toContain('Median estimated checkpoint-context reduction');
     expect(first).toContain('Policy failures');
     expect(first).toContain('None.');
   });

@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import {
+  EventIdSchema,
+  FileReadObservationV1Schema,
+  JsonValueSchema,
+} from '@acm/core';
 
 import {
   EvaluationAggregateV1Schema,
@@ -35,7 +40,48 @@ export const PublicGitFixtureV1Schema = z
       .min(1)
       .max(20),
   })
-  .strict();
+  .strict()
+  .refine(
+    (fixture) =>
+      new Set(fixture.verificationCommands.map((item) => item.id)).size ===
+      fixture.verificationCommands.length,
+    'Verification command IDs must be unique.',
+  );
+
+const ReductionInputBase = z.object({
+  caseId: StableNameSchema,
+  eventId: EventIdSchema,
+});
+export const HostedReductionInputV1Schema = z.discriminatedUnion('kind', [
+  ReductionInputBase.extend({
+    kind: z.literal('test_result'),
+    command: z.string().min(1).optional(),
+    exitCode: z.number().int().optional(),
+  }).strict(),
+  ReductionInputBase.extend({
+    kind: z.literal('file_read'),
+    metadata: FileReadObservationV1Schema,
+  }).strict(),
+  ReductionInputBase.extend({
+    kind: z.literal('search_result'),
+    query: z.string().min(1),
+    root: z.string().min(1),
+    command: z.string().min(1).optional(),
+    exitCode: z.number().int().optional(),
+  }).strict(),
+  ReductionInputBase.extend({
+    kind: z.literal('build_result'),
+    command: z.string().min(1),
+    workingDirectory: z.string().min(1),
+    toolVersion: z.string().min(1).optional(),
+    exitCode: z.number().int(),
+  }).strict(),
+]);
+
+export const HostedContextSourceSchema = z.enum([
+  'recorded-candidates',
+  'typed-reducers',
+]);
 
 export const HostedEvaluationPlanV1Schema = z
   .object({
@@ -44,6 +90,8 @@ export const HostedEvaluationPlanV1Schema = z
     fixture: PublicGitFixtureV1Schema,
     harness: HarnessKindSchema,
     model: z.string().min(1),
+    contextSource: HostedContextSourceSchema.default('recorded-candidates'),
+    reductionInputs: z.array(HostedReductionInputV1Schema).default([]),
     timeoutMs: z
       .number()
       .int()
@@ -87,6 +135,31 @@ export const HostedConditionRunOutputV1Schema = z
   })
   .strict();
 
+export const HostedTraceRecordV1Schema = z
+  .object({
+    schemaVersion: z.literal(1),
+    sequence: z.number().int().positive(),
+    createdAt: z.iso.datetime({ offset: true }),
+    kind: z.enum([
+      'plan',
+      'artifact',
+      'condition-start',
+      'harness-event',
+      'command',
+      'condition-result',
+      'condition-error',
+      'session-destroyed',
+    ]),
+    caseId: StableNameSchema.optional(),
+    condition: z.enum(['raw', 'managed']).optional(),
+    data: JsonValueSchema,
+  })
+  .strict();
+
+export const HostedEvaluationResultV1Schema = EvaluationResultV1Schema.extend({
+  hostedEvidence: z.array(HostedTraceRecordV1Schema),
+}).strict();
+
 const PolicyFailureCountsV1Schema = z
   .object({
     'missing-critical-field': z.number().int().nonnegative(),
@@ -108,6 +181,7 @@ export const SanitizedExperimentSummaryV1Schema = z
     status: z.enum(['pass', 'fail']),
     harness: HarnessKindSchema,
     model: z.string().min(1),
+    contextSource: HostedContextSourceSchema.default('recorded-candidates'),
     aggregate: EvaluationAggregateV1Schema,
     policyFailureCounts: PolicyFailureCountsV1Schema,
   })
@@ -122,6 +196,13 @@ export const SanitizedDashboardDatasetV1Schema = z
   .strict();
 
 export type PublicGitFixtureV1 = z.infer<typeof PublicGitFixtureV1Schema>;
+export type HostedReductionInputV1 = z.infer<
+  typeof HostedReductionInputV1Schema
+>;
+export type HostedTraceRecordV1 = z.infer<typeof HostedTraceRecordV1Schema>;
+export type HostedEvaluationResultV1 = z.infer<
+  typeof HostedEvaluationResultV1Schema
+>;
 export type HostedEvaluationPlanV1 = z.infer<
   typeof HostedEvaluationPlanV1Schema
 >;

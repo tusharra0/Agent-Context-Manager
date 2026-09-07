@@ -25,8 +25,10 @@ Only `@acm/vercel-harness` imports experimental Vercel harness packages.
 ## Stable port
 
 `AgentHarnessPort` creates a session with an ACM session ID and optional
-instructions. The port instance owns the harness identity, while every turn
-carries the workspace revision used for repeat-work evaluation. A session
+instructions. Session creation and streaming accept an external abort signal so
+one hosted deadline covers fixture setup, provider startup, the model turn,
+verification, and final workspace capture. The port instance owns the harness
+identity. A session
 exposes:
 
 - `stream()` for one turn at a time
@@ -55,9 +57,11 @@ silently discarded. Sensitive values are not logged by the adapter.
 ## Evaluation bridge
 
 Phase 3 recorded condition evidence is built from normalized harness traces,
-not vendor events. Tool calls become normalized agent actions, repeated work
-uses workspace revisions supplied by the runner, usage and latency are carried
-through, and final success still comes from an external verification oracle.
+not vendor events. Tool calls become normalized agent actions. Repeated work is
+computed only when a tool call carries an authoritative workspace revision;
+the final post-turn hash is not assigned retroactively to every action. Usage
+and latency are carried through when the provider supplies complete evidence,
+and final success still comes from an external verification oracle.
 
 ## Verification
 
@@ -69,6 +73,7 @@ verify:
 - Text, tool-call, tool-result, usage, error, and completion normalization
 - Concurrent-turn rejection
 - Interruption and cleanup
+- External deadline propagation during creation and streaming
 - Cleanup after stream failure
 - Unknown-part diagnostics
 - Evaluation evidence conversion

@@ -6,6 +6,7 @@ import {
   type HarnessEventDataV1,
   type HarnessEventFactoryOptions,
   type HarnessEventV1,
+  type HarnessExecutionOptions,
   type HarnessSessionDriver,
   type HarnessTurnInputV1,
 } from './contracts.js';
@@ -21,6 +22,7 @@ interface ActiveTurn {
   controller: AbortController;
   started: boolean;
   reason?: string;
+  disconnectAbort?: () => void;
 }
 
 function errorMessage(error: unknown): string {
@@ -52,7 +54,10 @@ export class ManagedAgentHarnessSession implements AgentHarnessSession {
     });
   }
 
-  stream(input: HarnessTurnInputV1): AsyncIterable<HarnessEventV1> {
+  stream(
+    input: HarnessTurnInputV1,
+    options: HarnessExecutionOptions = {},
+  ): AsyncIterable<HarnessEventV1> {
     if (this.destroyedEvent !== undefined) {
       throw new HarnessSessionStateError('The harness session is destroyed.');
     }
@@ -69,6 +74,20 @@ export class ManagedAgentHarnessSession implements AgentHarnessSession {
       started: false,
     };
     this.activeTurn = activeTurn;
+    if (options.abortSignal !== undefined) {
+      const externalSignal = options.abortSignal;
+      const abort = () => {
+        activeTurn.reason =
+          externalSignal.reason instanceof Error
+            ? externalSignal.reason.message
+            : String(externalSignal.reason ?? 'The turn was cancelled.');
+        controller.abort(externalSignal.reason);
+      };
+      externalSignal.addEventListener('abort', abort, { once: true });
+      activeTurn.disconnectAbort = () =>
+        externalSignal.removeEventListener('abort', abort);
+      if (externalSignal.aborted) abort();
+    }
     return this.runTurn(parsedInput, activeTurn);
   }
 
@@ -80,6 +99,7 @@ export class ManagedAgentHarnessSession implements AgentHarnessSession {
     if (reason !== undefined) activeTurn.reason = reason;
     activeTurn.controller.abort(reason);
     if (!activeTurn.started) {
+      activeTurn.disconnectAbort?.();
       if (this.activeTurn === activeTurn) this.activeTurn = undefined;
     }
   }
@@ -92,6 +112,7 @@ export class ManagedAgentHarnessSession implements AgentHarnessSession {
       activeTurn.reason = 'session-destroyed';
       activeTurn.controller.abort(activeTurn.reason);
       if (!activeTurn.started) {
+        activeTurn.disconnectAbort?.();
         this.activeTurn = undefined;
       }
     }
@@ -108,7 +129,10 @@ export class ManagedAgentHarnessSession implements AgentHarnessSession {
     let emittedTerminalEvent = false;
     activeTurn.started = true;
     try {
-      if (this.activeTurn !== activeTurn) {
+      if (
+        this.activeTurn !== activeTurn ||
+        activeTurn.controller.signal.aborted
+      ) {
         const reason = activeTurn.reason;
         yield this.envelope(
           reason === undefined
@@ -146,8 +170,16 @@ export class ManagedAgentHarnessSession implements AgentHarnessSession {
         });
       }
     } catch (error) {
-      yield this.envelope({ kind: 'error', message: errorMessage(error) });
+      yield this.envelope(
+        activeTurn.controller.signal.aborted
+          ? {
+              kind: 'interrupted',
+              reason: activeTurn.reason ?? errorMessage(error),
+            }
+          : { kind: 'error', message: errorMessage(error) },
+      );
     } finally {
+      activeTurn.disconnectAbort?.();
       if (this.activeTurn === activeTurn) this.activeTurn = undefined;
     }
   }

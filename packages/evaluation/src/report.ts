@@ -19,13 +19,17 @@ export function renderEvaluationReport(result: EvaluationResultV1): string {
     '## Aggregate results',
     '',
     `- Checkpoints: ${result.aggregate.checkpointCount}`,
-    `- Median input-token reduction: ${percent(result.aggregate.medianTokenReductionPercent)}`,
+    `- Median estimated checkpoint-context reduction: ${percent(result.aggregate.medianEstimatedContextReductionPercent)}`,
+    `- Measured input-token coverage: ${result.aggregate.measuredInputTokenCaseCount}/${result.aggregate.caseCount} paired cases`,
+    `- Measured input tokens, raw/managed (covered pairs): ${result.aggregate.rawMeasuredInputTokens ?? 'n/a'}/${result.aggregate.managedMeasuredInputTokens ?? 'n/a'}`,
+    `- Measured input-token reduction (covered pairs): ${percent(result.aggregate.measuredInputTokenReductionPercent)}`,
+    `- Median measured input-token reduction (covered pairs): ${percent(result.aggregate.medianMeasuredInputTokenReductionPercent)}`,
     `- Exact next-action agreement: ${result.aggregate.exactNextActionAgreements}/${result.aggregate.checkpointCount}`,
     `- Critical-field recall: ${result.aggregate.criticalFieldsPreserved}/${result.aggregate.criticalFieldsTotal} (${percent(result.aggregate.criticalFieldRecall === null ? null : result.aggregate.criticalFieldRecall * 100)})`,
     `- Raw task successes: ${result.aggregate.rawTaskSuccesses}/${result.cases.length}`,
     `- Managed task successes: ${result.aggregate.managedTaskSuccesses}/${result.cases.length}`,
     `- Baseline-only failures: ${result.aggregate.baselineOnlyFailures}`,
-    `- Repeated actions, raw/managed: ${result.aggregate.rawRepeatedActionCount}/${result.aggregate.managedRepeatedActionCount}`,
+    `- Repeated actions, raw/managed: ${result.aggregate.rawRepeatedActionCount ?? 'n/a'}/${result.aggregate.managedRepeatedActionCount ?? 'n/a'}`,
     `- Forced-compaction recovery: ${result.aggregate.forcedCompactionRecoveries}/${result.aggregate.forcedCompactionCheckpoints}`,
     '',
     '## Cases',
@@ -52,7 +56,7 @@ export function renderEvaluationReport(result: EvaluationResultV1): string {
         (field) => field.preserved && field.provenanceRetained,
       ).length;
       lines.push(
-        `- ${checkpoint.checkpointId}: ${percent(checkpoint.tokenReductionPercent)} token reduction; next action ${checkpoint.exactNextActionAgreement ? 'matched' : 'diverged'}; critical fields ${retained}/${checkpoint.criticalFields.length}; assembly \`${checkpoint.manifest.status}\``,
+        `- ${checkpoint.checkpointId}: ${percent(checkpoint.estimatedTokenReductionPercent)} estimated context reduction; next action ${checkpoint.exactNextActionAgreement ? 'matched' : 'diverged'}; critical fields ${retained}/${checkpoint.criticalFields.length}; assembly \`${checkpoint.manifest.status}\``,
       );
     }
     lines.push('');

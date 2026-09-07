@@ -115,6 +115,100 @@ describe('ripgrep JSON parser and reducer', () => {
     });
   });
 
+  it.each([
+    null,
+    42,
+    [],
+    { type: 'match', data: null },
+    { type: 'match', data: [] },
+    { type: 'match', data: { path: null, lines: null, line_number: 1 } },
+    { type: 'summary', data: { stats: null } },
+  ])(
+    'handles invalid JSON record shapes without throwing: %j',
+    async (record) => {
+      const payload = parseRipgrepJson(Buffer.from(JSON.stringify(record)), {
+        query: 'x',
+        root: '.',
+      });
+      expect(payload.parseStatus).toBe('opaque');
+      expect(payload.diagnostics.length).toBeGreaterThan(0);
+      const reduced = await new RipgrepJsonReducer().reduce({
+        ...base,
+        kind: 'search_result',
+        payload,
+      });
+      expect(reduced.safeForContext).toBe(false);
+      expect(reduced.rawArtifactUri).toBe(base.rawArtifactUri);
+    },
+  );
+
+  it.each([null, {}, 'not an array', 1, [null], [false]])(
+    'handles malformed submatches without throwing: %j',
+    (submatches) => {
+      const payload = parseRipgrepJson(
+        Buffer.from(
+          JSON.stringify({
+            type: 'match',
+            data: {
+              path: { text: 'src/index.ts' },
+              lines: { text: 'value\n' },
+              line_number: 1,
+              submatches,
+            },
+          }),
+        ),
+        { query: 'value', root: '.' },
+      );
+      expect(payload.parseStatus).toBe('opaque');
+      expect(payload.diagnostics).toContainEqual(
+        expect.objectContaining({ code: 'INVALID_SUBMATCH' }),
+      );
+    },
+  );
+
+  it('preserves valid matches from a partially malformed stream and requires restoration', async () => {
+    const payload = parseRipgrepJson(
+      Buffer.from(
+        [
+          'null',
+          JSON.stringify({
+            type: 'match',
+            data: {
+              path: { text: 'src/index.ts' },
+              lines: { text: 'value\n' },
+              line_number: 1,
+              submatches: [null, { start: 0, end: 5 }],
+            },
+          }),
+          JSON.stringify({ type: 'summary', data: { stats: { matches: 1 } } }),
+        ].join('\n'),
+      ),
+      { query: 'value', root: '.' },
+    );
+    expect(payload.parseStatus).toBe('partial');
+    expect(payload.matches).toEqual([
+      {
+        path: 'src/index.ts',
+        line: 1,
+        column: 1,
+        endColumn: 6,
+        byteOffset: 0,
+        endByteOffset: 5,
+        text: 'value',
+      },
+    ]);
+    const reduced = await new RipgrepJsonReducer().reduce({
+      ...base,
+      kind: 'search_result',
+      payload,
+    });
+    expect(reduced.safeForContext).toBe(false);
+    expect(JSON.parse(reduced.reducedText)).toMatchObject({
+      matches: payload.matches,
+      evidence: { rawArtifactUri: base.rawArtifactUri },
+    });
+  });
+
   it('converts ripgrep byte offsets to UTF-16 columns', () => {
     const line = '😀 value\n';
     const match = JSON.stringify({

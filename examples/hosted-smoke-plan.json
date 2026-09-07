@@ -14,7 +14,7 @@
     "cases": [
       {
         "id": "restore-smoke-requirement",
-        "task": "Complete the remaining smoke-fixture work described in the supplied session context.",
+        "task": "Create PHASE5_SMOKE.md with one line exactly: Phase 5 sandbox evaluation",
         "checkpoints": [
           {
             "id": "after-setup",
@@ -35,36 +35,37 @@
             "instructions": [
               {
                 "id": "continue-task",
-                "text": "Continue the prior task and verify the requested file."
+                "text": "Create PHASE5_SMOKE.md with one line exactly: Phase 5 sandbox evaluation"
               }
             ],
             "observations": [
               {
                 "eventId": "evt_55555555555555555555555555555555",
                 "sequence": 1,
-                "rawText": "Prior session notes: setup completed. setup completed. setup completed. setup completed. setup completed. setup completed. setup completed. setup completed. setup completed. setup completed. User requirement: create PHASE5_SMOKE.md with one line exactly: Phase 5 sandbox evaluation",
-                "contentHash": "539106a0b5559753e3ce54a779584ca5b20ec995d15fc0162cfe9306dacacfae",
+                "rawText": "{\"numTotalTestSuites\":2,\"numPassedTestSuites\":2,\"numFailedTestSuites\":0,\"numPendingTestSuites\":0,\"numTotalTests\":3,\"numPassedTests\":1,\"numFailedTests\":0,\"numPendingTests\":1,\"numTodoTests\":1,\"snapshot\":{\"added\":0,\"failure\":false,\"filesAdded\":0,\"filesRemoved\":0,\"filesRemovedList\":[],\"filesUnmatched\":0,\"filesUpdated\":0,\"matched\":0,\"total\":0,\"unchecked\":0,\"uncheckedKeysByFile\":[],\"unmatched\":0,\"updated\":0,\"didUpdate\":false},\"startTime\":1787069727630,\"success\":true,\"testResults\":[{\"assertionResults\":[{\"ancestorTitles\":[\"calculator\"],\"fullName\":\"calculator adds values\",\"status\":\"passed\",\"title\":\"adds values\",\"duration\":4.72199999999998,\"failureMessages\":[],\"meta\":{}},{\"ancestorTitles\":[\"calculator\"],\"fullName\":\"calculator has a deferred scenario\",\"status\":\"skipped\",\"title\":\"has a deferred scenario\",\"failureMessages\":[],\"meta\":{}},{\"ancestorTitles\":[\"calculator\"],\"fullName\":\"calculator handles arbitrary precision\",\"status\":\"todo\",\"title\":\"handles arbitrary precision\",\"failureMessages\":[],\"meta\":{}}],\"startTime\":1787069728723,\"endTime\":1787069728727.722,\"status\":\"passed\",\"message\":\"\",\"name\":\"<workspace>/packages/reducers/test/fixture-sources/all-pass.test.ts\"}]}",
+                "contentHash": "f72805b4035f53cce843ea8a056ea5efc77c38def6755aa2c758dee46c3809c4",
                 "safeForContext": true,
                 "managedCandidate": {
                   "id": "event:evt_55555555555555555555555555555555",
-                  "class": "requirement",
-                  "required": true,
+                  "class": "recent-observation",
+                  "required": false,
                   "sequence": 1,
-                  "text": "Create PHASE5_SMOKE.md with one line exactly: Phase 5 sandbox evaluation",
+                  "text": "{\"reportedCounts\":{\"passed\":1}}",
                   "sourceEventIds": ["evt_55555555555555555555555555555555"]
                 }
               }
             ],
             "criticalFields": [
               {
-                "id": "smoke-file-requirement",
-                "category": "requirement",
+                "id": "reported-passing-tests",
+                "category": "test-field",
                 "sourceEventId": "evt_55555555555555555555555555555555",
-                "sourceText": "PHASE5_SMOKE.md",
-                "expectedValue": "Create PHASE5_SMOKE.md with one line exactly: Phase 5 sandbox evaluation",
+                "sourceText": "\"numPassedTests\":1",
+                "expectedValue": 1,
                 "locator": {
-                  "mode": "candidate-text",
-                  "candidateId": "event:evt_55555555555555555555555555555555"
+                  "mode": "candidate-json-pointer",
+                  "candidateId": "event:evt_55555555555555555555555555555555",
+                  "jsonPointer": "/reportedCounts/passed"
                 }
               }
             ],
@@ -128,6 +129,16 @@
       }
     ]
   },
+  "contextSource": "typed-reducers",
+  "reductionInputs": [
+    {
+      "caseId": "restore-smoke-requirement",
+      "eventId": "evt_55555555555555555555555555555555",
+      "kind": "test_result",
+      "command": "pnpm vitest run --reporter=json",
+      "exitCode": 0
+    }
+  ],
   "fixture": {
     "id": "acm-phase4-public",
     "repositoryUrl": "https://github.com/tusharra0/Agent-Context-Manager.git",
@@ -145,6 +156,6 @@
     ]
   },
   "harness": "codex",
-  "model": "gpt-5.5",
+  "model": "minimax/minimax-m2.7",
   "timeoutMs": 900000
 }

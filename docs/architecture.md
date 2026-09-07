@@ -101,6 +101,10 @@ Builds the active input under a configurable token budget. Priority order:
 
 Records experimental condition, harness, model, repository fixture, task outcome, tests, tokens, latency, repeated work, next-action agreement, fact preservation, and recovery results.
 
+Estimated checkpoint reduction and provider-reported input-token reduction are
+separate measurements. Missing provider usage and missing authoritative
+tool-time workspace revisions remain unknown rather than becoming zero.
+
 ## Data classes and default policy
 
 | Class                | Examples                              | Default policy                                        |
@@ -124,9 +128,12 @@ Records experimental condition, harness, model, repository fixture, task outcome
 
 - A repository fixture is materialized in Vercel Sandbox.
 - A selected harness runs the baseline or managed condition.
+- Typed hosted plans derive managed candidates from raw observations with the
+  same deterministic reducers used by the local pipeline.
 - Tests and evaluation probes run inside the sandbox.
 - Aggregated results may be sent to a hosted dashboard.
-- Raw proprietary content is not synchronized unless explicitly configured.
+- Raw observations and streamed execution evidence stay in private local
+  artifacts and journals; only explicit plan context reaches the sandbox.
 
 ## Internal package boundaries
 
@@ -143,9 +150,10 @@ Records experimental condition, harness, model, repository fixture, task outcome
 
 Only create a package when its vertical slice starts.
 
-The core, reducers, event store, working-state, context-assembler, and offline
-evaluation packages are implemented through Phase 3. Harness packages remain
-future boundaries and have not been scaffolded prematurely.
+The core, reducers, event store, working-state, context assembler, offline
+evaluation, harness adapter, and hosted evaluation packages are implemented.
+The hosted evaluation currently runs one paired checkpoint per isolated task.
+Continuous multi-turn context replacement remains an adapter limitation.
 
 ## Architectural risks
 

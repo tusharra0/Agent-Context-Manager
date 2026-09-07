@@ -105,7 +105,138 @@ describe('parseVitestJson', () => {
         (diagnostic) => diagnostic.code === 'UNKNOWN_FIELD',
       ),
     ).toHaveLength(2);
+    expect(result.parseStatus).toBe('partial');
+  });
+
+  it('preserves suite import errors even when no assertions ran', () => {
+    const message =
+      'Error: Cannot find module ./missing.js\n    at src/import.test.ts:1:1';
+    const snapshot = { failure: false, uncheckedKeysByFile: [] };
+    const result = parseVitestJson(
+      Buffer.from(
+        JSON.stringify({
+          success: false,
+          numTotalTests: 0,
+          numFailedTests: 0,
+          numTotalTestSuites: 1,
+          numFailedTestSuites: 1,
+          snapshot,
+          testResults: [
+            {
+              name: 'src/import.test.ts',
+              status: 'failed',
+              message,
+              assertionResults: [],
+            },
+          ],
+        }),
+      ),
+      { exitCode: 1 },
+    );
+
+    expect(result).toMatchObject({
+      parseStatus: 'complete',
+      reportedCounts: { total: 0, failed: 0 },
+      observedCounts: { total: 0, failed: 0 },
+      reportedSuiteCounts: { total: 1, failed: 1 },
+      snapshot,
+      failures: [
+        {
+          scope: 'suite',
+          testName: 'src/import.test.ts',
+          file: 'src/import.test.ts',
+          suiteStatus: 'failed',
+          failureMessages: [message],
+          stackFrames: ['at src/import.test.ts:1:1'],
+        },
+      ],
+    });
+  });
+
+  it('keeps suite errors alongside failed assertions without changing assertion counts', () => {
+    const result = parseVitestJson(
+      Buffer.from(
+        JSON.stringify({
+          success: false,
+          testResults: [
+            {
+              name: 'src/hook.test.ts',
+              status: 'failed',
+              message: 'afterAll cleanup failed',
+              assertionResults: [
+                {
+                  fullName: 'assertion failure',
+                  status: 'failed',
+                  failureMessages: ['assertion failed'],
+                },
+              ],
+            },
+          ],
+        }),
+      ),
+    );
     expect(result.parseStatus).toBe('complete');
+    expect(result.observedCounts).toMatchObject({ total: 1, failed: 1 });
+    expect(result.failures).toHaveLength(2);
+    expect(result.failures[0]).toMatchObject({
+      scope: 'suite',
+      failureMessages: ['afterAll cleanup failed'],
+    });
+    expect(result.failures[1]).toMatchObject({
+      testName: 'assertion failure',
+      failureMessages: ['assertion failed'],
+    });
+  });
+
+  it.each([
+    { status: 'failed', message: '' },
+    { status: 'failed', message: { error: 'not a reporter string' } },
+    { status: 'unknown', message: 'unsupported status' },
+  ])('requires restoration for incomplete suite fields: %j', (fields) => {
+    const result = parseVitestJson(
+      Buffer.from(
+        JSON.stringify({
+          success: false,
+          testResults: [
+            { name: 'src/failing.test.ts', assertionResults: [], ...fields },
+          ],
+        }),
+      ),
+    );
+    expect(result.parseStatus).toBe('partial');
+    expect(result.diagnostics.length).toBeGreaterThan(0);
+  });
+
+  it('does not declare unexplained reporter failure or malformed known fields complete', () => {
+    for (const report of [
+      { success: false, testResults: [] },
+      { numFailedTestSuites: 1, testResults: [] },
+      { numTotalTests: '1', testResults: [] },
+      { snapshot: null, testResults: [] },
+      {
+        testResults: [
+          { status: 'failed', message: 'import failed', assertionResults: [] },
+        ],
+      },
+      {
+        testResults: [
+          {
+            assertionResults: [
+              {
+                fullName: 'fails',
+                status: 'failed',
+                failureMessages: ['error'],
+                location: { line: -1 },
+              },
+            ],
+          },
+        ],
+      },
+    ]) {
+      expect(
+        parseVitestJson(Buffer.from(JSON.stringify(report))).parseStatus,
+      ).toBe('partial');
+    }
   });
 
   it('derives counts without a summary and diagnoses reported mismatches', async () => {
@@ -174,5 +305,30 @@ describe('parseVitestJson', () => {
     expect(result.diagnostics).toContainEqual(
       expect.objectContaining({ code: 'MISSING_TEST_NAME' }),
     );
+  });
+
+  it('retains usable error messages when the reporter failure array is partially malformed', () => {
+    const result = parseVitestJson(
+      Buffer.from(
+        JSON.stringify({
+          testResults: [
+            {
+              name: 'src/failure.test.ts',
+              assertionResults: [
+                {
+                  fullName: 'retains error details',
+                  status: 'failed',
+                  failureMessages: ['exact error message', null],
+                },
+              ],
+            },
+          ],
+        }),
+      ),
+    );
+    expect(result.parseStatus).toBe('partial');
+    expect(result.failures[0]?.failureMessages).toEqual([
+      'exact error message',
+    ]);
   });
 });

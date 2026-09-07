@@ -14,8 +14,43 @@ function taskSuccess(successes: number, cases: number): string {
     : `${successes}/${cases} (${formatRatio(successes / cases)})`;
 }
 
+/**
+ * Describes what per-step interception was allowed to touch.
+ *
+ * A measured input reduction is only interpretable next to it: the reduction
+ * acts on observations, and everything else in a request — the harness system
+ * prompt, its tool schemas, the conversation the harness owns — is out of
+ * reach. A small saving over a small reducible share is a different result
+ * from a small saving over a large one.
+ */
+export function observationMetrics(
+  summary: Pick<
+    SanitizedExperimentSummaryV1,
+    'aggregate' | 'observationInterception'
+  >,
+) {
+  if (summary.observationInterception !== 'per-step') return [];
+  return [
+    {
+      label: 'Observation token reduction',
+      value: formatPercent(summary.aggregate.observationTokenReductionPercent),
+    },
+    {
+      label: 'Reducible share of observations',
+      value: formatPercent(summary.aggregate.reducibleSharePercent),
+    },
+    {
+      label: 'Cases with paired observations',
+      value: `${summary.aggregate.observationCaseCount}/${summary.aggregate.caseCount}`,
+    },
+  ];
+}
+
 export function experimentMetrics(
-  summary: Pick<SanitizedExperimentSummaryV1, 'aggregate'>,
+  summary: Pick<
+    SanitizedExperimentSummaryV1,
+    'aggregate' | 'observationInterception'
+  >,
 ) {
   return [
     {
@@ -34,6 +69,7 @@ export function experimentMetrics(
       label: 'Cases with paired usage',
       value: `${summary.aggregate.measuredInputTokenCaseCount}/${summary.aggregate.caseCount}`,
     },
+    ...observationMetrics(summary),
     {
       label: 'Next-action agreement',
       value: formatRatio(summary.aggregate.exactNextActionAgreementRate),

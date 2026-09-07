@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { experimentMetrics, formatPercent, formatRatio } from './view-model';
+import {
+  experimentMetrics,
+  formatPercent,
+  formatRatio,
+  observationMetrics,
+} from './view-model';
 
 const aggregate = {
   caseCount: 3,
@@ -40,7 +45,10 @@ describe('dashboard view model', () => {
   });
 
   it('shows both task success rates against total cases even when managed succeeds more often', () => {
-    const metrics = experimentMetrics({ aggregate });
+    const metrics = experimentMetrics({
+      aggregate,
+      observationInterception: 'off',
+    });
 
     expect(metrics).toContainEqual({
       label: 'Raw task success',
@@ -51,12 +59,18 @@ describe('dashboard view model', () => {
       value: '2/3 (66.7%)',
     });
     expect(
-      experimentMetrics({ aggregate: { ...aggregate, rawTaskSuccesses: 0 } }),
+      experimentMetrics({
+        aggregate: { ...aggregate, rawTaskSuccesses: 0 },
+        observationInterception: 'off',
+      }),
     ).toContainEqual({ label: 'Managed task success', value: '2/3 (66.7%)' });
   });
 
   it('distinguishes estimated context reduction from measured input usage and its coverage', () => {
-    const metrics = experimentMetrics({ aggregate });
+    const metrics = experimentMetrics({
+      aggregate,
+      observationInterception: 'off',
+    });
 
     expect(metrics).toContainEqual({
       label: 'Median estimated context reduction',
@@ -72,6 +86,7 @@ describe('dashboard view model', () => {
     });
     expect(
       experimentMetrics({
+        observationInterception: 'off',
         aggregate: {
           ...aggregate,
           measuredInputTokenReductionPercent: null,
@@ -82,5 +97,65 @@ describe('dashboard view model', () => {
       label: 'Measured input reduction (covered pairs)',
       value: '—',
     });
+  });
+});
+
+describe('observation metrics', () => {
+  const interceptedAggregate = {
+    ...aggregate,
+    observationCaseCount: 2,
+    rawObservationTokens: 1000,
+    managedObservationTokens: 400,
+    observationTokenReductionPercent: 60,
+    medianObservationTokenReductionPercent: 60,
+    reducibleSharePercent: 75,
+  };
+
+  it('stays silent for a run that reduced only its checkpoint', () => {
+    expect(
+      observationMetrics({
+        aggregate: interceptedAggregate,
+        observationInterception: 'off',
+      }),
+    ).toEqual([]);
+  });
+
+  it('publishes the saving next to the share a reduction could reach', () => {
+    expect(
+      observationMetrics({
+        aggregate: interceptedAggregate,
+        observationInterception: 'per-step',
+      }),
+    ).toEqual([
+      { label: 'Observation token reduction', value: '60%' },
+      { label: 'Reducible share of observations', value: '75%' },
+      { label: 'Cases with paired observations', value: '2/3' },
+    ]);
+  });
+
+  it('shows an unmeasured share as missing rather than as zero', () => {
+    expect(
+      observationMetrics({
+        aggregate: { ...aggregate, observationCaseCount: 0 },
+        observationInterception: 'per-step',
+      }),
+    ).toContainEqual({
+      label: 'Reducible share of observations',
+      value: '—',
+    });
+  });
+
+  it('includes the observation rows in the published metric list', () => {
+    const labels = experimentMetrics({
+      aggregate: interceptedAggregate,
+      observationInterception: 'per-step',
+    }).map((metric) => metric.label);
+    expect(labels).toContain('Observation token reduction');
+    expect(
+      experimentMetrics({
+        aggregate: interceptedAggregate,
+        observationInterception: 'off',
+      }).map((metric) => metric.label),
+    ).not.toContain('Observation token reduction');
   });
 });

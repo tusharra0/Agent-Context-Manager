@@ -1,0 +1,21 @@
+import { z } from 'zod';
+
+export const Schema = z.object({ id: z.string(), count: z.number() });
+export type Parsed = z.infer<typeof Schema>;
+
+export function summarize(input: Parsed): string {
+  const total: number = input.id;
+  const label: string = input.count;
+  return total + label + input.missingField;
+}
+
+export function collect(values: readonly Parsed[]): Map<string, number> {
+  const seen = new Map<string, string>();
+  for (const value of values) seen.set(value.id, value.count);
+  return seen;
+}
+
+export async function load(path: string): Promise<Parsed> {
+  const raw = await readTheFile(path);
+  return Schema.parse(raw);
+}

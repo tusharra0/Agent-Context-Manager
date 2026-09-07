@@ -293,6 +293,34 @@ built only when every completed turn reported usage for each of its steps, and
 its least-squares slope is what separates a one-time saving from a compounding
 one.
 
-Long-horizon fixtures, a hosted plan field that selects per-step interception,
-and the paired run that would validate the two together are not yet built. The
-harness preamble and prior transcript still lie outside ACM's reach.
+### Measuring it locally
+
+```bash
+pnpm --filter @acm/observation-pipeline benchmark
+```
+
+Replays one realistic session through both policies using real files, real
+vitest reports, real tsc diagnostics, and ripgrep records built from real
+matches. Each observation is counted in every request that follows it, which is
+where a compounding reduction appears.
+
+On the committed session that is **41.1%** fewer observation tokens when
+re-reads are byte-identical and **23.6%** when every file is edited between
+reads. The floor comes from searches and test output alone, since deduplication
+needs byte-identical repeats.
+
+This uses ACM's own token estimator, not provider tokenization, and it counts
+tokens rather than correctness.
+
+### Running it hosted
+
+A plan sets `observationInterception: "per-step"`. `examples/phase6-suite` holds
+four paired plans against a pinned public revision of this repository; every
+verification command in them was checked against that revision first, so no task
+is already solved and none starts from a broken tree.
+
+Not yet done: a suite large enough to support a claim about a median, the
+non-inferiority margin that would decide how large that is, and the paired
+hosted run itself — the first step that costs money and the only one that
+reports provider-measured tokens and task outcomes. The harness preamble and
+prior transcript still lie outside ACM's reach.

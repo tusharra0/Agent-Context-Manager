@@ -66,9 +66,12 @@
 - [x] Reduce observations behind deterministic safety gates
 - [x] Override harness builtin tools with host-executed ones
 - [x] Run both conditions through one interception path
-- [ ] Add long-horizon fixtures with repeated reads, searches, and failures
-- [ ] Select per-step interception from a hosted plan
-- [ ] Report the reducible share alongside measured reduction
+- [x] Measure the reduction locally without a sandbox or spend
+- [x] Select per-step interception from a hosted plan
+- [x] Report the reducible share alongside measured reduction
+- [x] Seed a long-horizon suite of four verified coding tasks
+- [ ] Grow the suite to the size a stated non-inferiority margin requires
+- [ ] Run the suite paired and publish the measured result
 - [ ] Spike a model-facing proxy for the harness preamble
 
 ## Exit criterion for the MVP

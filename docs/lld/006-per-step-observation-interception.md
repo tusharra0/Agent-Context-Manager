@@ -135,6 +135,22 @@ and — whenever a reduction was computed — `reducedTokenEstimate` and
 managed condition would have done with the same bytes, which is what makes the
 reducible share of a run measurable from the baseline.
 
+## Local measurement
+
+`pnpm --filter @acm/observation-pipeline benchmark` replays one realistic
+session through both policies and reports the tokens each puts into the
+transcript. It needs no sandbox, credentials, or spend.
+
+Each observation is counted in every request that follows it, because that is
+where a compounding reduction appears and a turn total cannot show it. On the
+committed session that is 41.1% fewer observation tokens when re-reads are
+byte-identical and 23.6% when every file is edited between reads, which bounds
+what deduplication contributes.
+
+The estimate is ACM's own, not provider tokenization, and it counts tokens
+rather than correctness. It answers whether the reduction compounds; it does not
+answer whether the agent still finishes the task.
+
 ## Verification
 
 Credential-free tests cover:
@@ -163,10 +179,29 @@ Credential-free tests cover:
 - Per-step usage is recorded, or reported as unavailable — never as zero.
 - `pnpm check` passes without credentials or network access.
 
+## Running it hosted
+
+A plan sets `observationInterception: "per-step"`. The plan decides in both
+directions: an `off` plan never builds an interceptor even when one is
+available, anything other than an explicit `per-step` is treated as off, and a
+`per-step` plan with no interceptor fails rather than running without one.
+
+`examples/phase6-suite` holds four paired plans against a pinned public revision
+of this repository. Every verification command was checked against that revision
+before they were committed, so no task is already solved and none starts from a
+broken tree.
+
+A fixture may state the command conventions that make its own output reducible.
+Deterministic reducers only fold output they can parse, and an agent left to
+itself runs `pnpm test` rather than a machine-readable reporter. The conventions
+are appended identically to both conditions' prompts, so they are a declared
+property of the experiment rather than an advantage for either arm.
+
 ## Not in this slice
 
 - The harness preamble and prior transcript, which need the model-facing proxy
   described in ADR 008.
-- Long-horizon fixtures with repeated reads, searches, and failing tests.
-- A hosted plan field that selects per-step interception, and the paired run
-  that would validate it.
+- A suite large enough to support a claim about a median, and the
+  non-inferiority margin that would decide how large that is.
+- The paired hosted run itself, which is the first step that costs money and the
+  only one that reports provider-measured tokens and task outcomes.

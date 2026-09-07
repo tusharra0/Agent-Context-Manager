@@ -390,6 +390,12 @@ function conditionMeasurements(
       ? { latencyMs: evidence.latencyMs }
       : {}),
     ...(evidence.costUsd !== undefined ? { costUsd: evidence.costUsd } : {}),
+    ...(evidence.usageCurve !== undefined
+      ? { usageCurve: evidence.usageCurve }
+      : {}),
+    ...(evidence.observations !== undefined
+      ? { observations: evidence.observations }
+      : {}),
   };
 }
 
@@ -408,6 +414,45 @@ function reductionPercent(raw: number, managed: number): number | null {
 function sumAvailable(values: readonly (number | null)[]): number | null {
   if (values.some((value) => value === null)) return null;
   return values.reduce<number>((sum, value) => sum + value!, 0);
+}
+
+function observationAggregate(cases: readonly EvaluationCaseResultV1[]) {
+  const pairs = cases.flatMap((evaluationCase) => {
+    const raw = evaluationCase.rawMeasurements.observations;
+    const managed = evaluationCase.managedMeasurements.observations;
+    return raw === undefined || managed === undefined ? [] : [{ raw, managed }];
+  });
+  const raw = pairs.reduce((sum, pair) => sum + pair.raw.rawTokenEstimate, 0);
+  const managed = pairs.reduce(
+    (sum, pair) => sum + pair.managed.observedTokenEstimate,
+    0,
+  );
+  // Taken from the baseline: it is the condition whose observations were left
+  // whole, so its reducible share describes the opportunity, not the outcome.
+  const reducibleRaw = pairs.reduce(
+    (sum, pair) => sum + pair.raw.reducibleRawTokenEstimate,
+    0,
+  );
+  return {
+    observationCaseCount: pairs.length,
+    rawObservationTokens: pairs.length === 0 ? null : raw,
+    managedObservationTokens: pairs.length === 0 ? null : managed,
+    observationTokenReductionPercent:
+      pairs.length === 0 ? null : reductionPercent(raw, managed),
+    medianObservationTokenReductionPercent: median(
+      pairs.flatMap((pair) => {
+        const reduction = reductionPercent(
+          pair.raw.rawTokenEstimate,
+          pair.managed.observedTokenEstimate,
+        );
+        return reduction === null ? [] : [reduction];
+      }),
+    ),
+    reducibleSharePercent:
+      pairs.length === 0 || raw === 0
+        ? null
+        : round((reducibleRaw / raw) * 100),
+  };
 }
 
 function measuredInputTokenAggregate(cases: readonly EvaluationCaseResultV1[]) {
@@ -663,6 +708,7 @@ export function evaluateExperiment(
         ),
       ),
       ...measuredInputTokenAggregate(cases),
+      ...observationAggregate(cases),
       exactNextActionAgreements: exactAgreements,
       exactNextActionAgreementRate:
         checkpoints.length === 0

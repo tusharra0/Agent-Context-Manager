@@ -70,6 +70,13 @@ export interface RecordingObservationInterceptorOptions {
   readonly maxObservationBytes?: number;
   readonly now?: () => Date;
   readonly generateUuid?: UuidGenerator;
+  /**
+   * Receives every audit record as it is produced. Synchronous on purpose:
+   * interception is already serialized, and an awaited sink here would let a
+   * slow consumer reorder the records it is meant to describe. Collect and
+   * flush afterwards when persistence is needed.
+   */
+  readonly onRecord?: (record: ObservationRecordV1) => void;
 }
 
 function errorMessage(error: unknown): string {
@@ -111,6 +118,8 @@ export class RecordingObservationInterceptor implements ObservationInterceptor {
   private readonly maxObservationBytes: number;
   private readonly now: () => Date;
   private readonly generateUuid: UuidGenerator | undefined;
+  private readonly onRecord:
+    ((record: ObservationRecordV1) => void) | undefined;
 
   /** Serializes interception so ordering is reproducible across replays. */
   private queue: Promise<void> = Promise.resolve();
@@ -139,6 +148,7 @@ export class RecordingObservationInterceptor implements ObservationInterceptor {
     this.maxObservationBytes = maxObservationBytes;
     this.now = options.now ?? (() => new Date());
     this.generateUuid = options.generateUuid;
+    this.onRecord = options.onRecord;
   }
 
   async intercept(
@@ -494,6 +504,7 @@ export class RecordingObservationInterceptor implements ObservationInterceptor {
             },
           }),
     });
+    this.onRecord?.(record);
     return { text: input.text, isError: output.isError, record };
   }
 }

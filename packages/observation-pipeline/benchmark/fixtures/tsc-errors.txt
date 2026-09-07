@@ -1,0 +1,4 @@
+bench-capture/tscsrc/broken.ts(1,19): error TS2307: Cannot find module 'zod' or its corresponding type declarations.
+bench-capture/tscsrc/broken.ts(15,3): error TS2322: Type 'Map<string, string>' is not assignable to type 'Map<string, number>'.
+  Type 'string' is not assignable to type 'number'.
+bench-capture/tscsrc/broken.ts(19,21): error TS2304: Cannot find name 'readTheFile'.

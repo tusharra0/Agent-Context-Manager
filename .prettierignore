@@ -5,3 +5,4 @@ artifacts
 apps/dashboard/next-env.d.ts
 pnpm-lock.yaml
 packages/reducers/test/fixtures/
+packages/observation-pipeline/benchmark/fixtures/

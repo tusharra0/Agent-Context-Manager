@@ -12,18 +12,19 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "pretest": "pnpm --filter @acm/core build && pnpm --filter @acm/harness-port build && pnpm --filter @acm/hosted-evaluation build",
+    "pretest": "pnpm --filter @acm/core build && pnpm --filter @acm/harness-port build && pnpm --filter @acm/hosted-evaluation build && pnpm --filter @acm/observation-pipeline build",
     "test": "vitest run --pool=forks --maxWorkers=1",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@acm/core": "workspace:*",
     "@acm/harness-port": "workspace:*",
+    "@acm/hosted-evaluation": "workspace:*",
+    "@acm/observation-pipeline": "workspace:*",
     "@ai-sdk/harness": "1.0.91",
     "@ai-sdk/harness-claude-code": "1.0.94",
     "@ai-sdk/harness-codex": "1.0.93",
     "@ai-sdk/sandbox-vercel": "1.0.91",
-    "@acm/hosted-evaluation": "workspace:*",
     "@vercel/sandbox": "3.2.0",
     "ai": "7.0.83",
     "ws": "8.21.3",

@@ -73,6 +73,27 @@ const UsageDataV1Schema = z
     inputTokens: z.number().int().nonnegative(),
     outputTokens: z.number().int().nonnegative(),
     totalTokens: z.number().int().nonnegative(),
+    cachedInputTokens: z.number().int().nonnegative().optional(),
+    details: JsonValueSchema.optional(),
+  })
+  .strict();
+
+/**
+ * Usage for one model request inside a turn. A turn can issue many requests,
+ * and `usage` reports only the turn total, which hides how the request input
+ * grows step by step. Per-step usage is what makes a compounding context
+ * reduction visible; a turn total cannot distinguish it from a one-time saving.
+ *
+ * `stepIndex` is per turn and starts at 1. Sessions renumber across turns.
+ */
+const StepUsageDataV1Schema = z
+  .object({
+    kind: z.literal('step-usage'),
+    stepIndex: z.number().int().positive(),
+    inputTokens: z.number().int().nonnegative(),
+    outputTokens: z.number().int().nonnegative(),
+    totalTokens: z.number().int().nonnegative(),
+    cachedInputTokens: z.number().int().nonnegative().optional(),
     details: JsonValueSchema.optional(),
   })
   .strict();
@@ -121,6 +142,7 @@ export const HarnessEventDataV1Schema = z.discriminatedUnion('kind', [
   ToolCallDataV1Schema,
   ToolResultDataV1Schema,
   UsageDataV1Schema,
+  StepUsageDataV1Schema,
   TurnCompletedDataV1Schema,
   InterruptedDataV1Schema,
   DiagnosticDataV1Schema,
@@ -148,6 +170,7 @@ export const HarnessEventV1Schema = z.discriminatedUnion('kind', [
   eventSchema(ToolCallDataV1Schema.shape),
   eventSchema(ToolResultDataV1Schema.shape),
   eventSchema(UsageDataV1Schema.shape),
+  eventSchema(StepUsageDataV1Schema.shape),
   eventSchema(TurnCompletedDataV1Schema.shape),
   eventSchema(InterruptedDataV1Schema.shape),
   eventSchema(DiagnosticDataV1Schema.shape),

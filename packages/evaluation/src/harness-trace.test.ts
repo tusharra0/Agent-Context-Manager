@@ -319,3 +319,238 @@ describe('buildConditionEvidenceFromHarnessTrace', () => {
     ).toThrow('must increase');
   });
 });
+
+const OUTCOME = {
+  success: true,
+  assertions: [{ id: 'tests', passed: true }],
+} as const;
+
+function curveTrace(
+  turns: readonly { events: readonly HarnessEventV1[] }[],
+): ReturnType<typeof buildConditionEvidenceFromHarnessTrace> {
+  return buildConditionEvidenceFromHarnessTrace({
+    condition: 'managed',
+    harness: 'codex',
+    model: 'gpt-5.4',
+    turns: turns.map((turn, index) => ({
+      workspaceRevision: `rev-${index + 1}`,
+      events: [...turn.events],
+    })),
+    outcome: OUTCOME,
+  });
+}
+
+describe('per-step usage curves', () => {
+  it('numbers steps across turns and reports the input-token slope', () => {
+    const evidence = curveTrace([
+      {
+        events: [
+          event(1, {
+            kind: 'tool-call',
+            toolCallId: 'call-1',
+            toolName: 'bash',
+            input: { command: 'pnpm test' },
+          }),
+          event(2, {
+            kind: 'step-usage',
+            stepIndex: 1,
+            inputTokens: 100,
+            outputTokens: 10,
+            totalTokens: 110,
+          }),
+          event(3, {
+            kind: 'step-usage',
+            stepIndex: 2,
+            inputTokens: 220,
+            outputTokens: 8,
+            totalTokens: 228,
+            cachedInputTokens: 96,
+          }),
+          event(4, {
+            kind: 'usage',
+            inputTokens: 320,
+            outputTokens: 18,
+            totalTokens: 338,
+          }),
+          event(5, { kind: 'turn-completed', finishReason: 'stop' }),
+        ],
+      },
+      {
+        events: [
+          event(6, {
+            kind: 'tool-call',
+            toolCallId: 'call-2',
+            toolName: 'bash',
+            input: { command: 'pnpm build' },
+          }),
+          event(7, {
+            kind: 'step-usage',
+            stepIndex: 1,
+            inputTokens: 300,
+            outputTokens: 12,
+            totalTokens: 312,
+          }),
+          event(8, {
+            kind: 'usage',
+            inputTokens: 300,
+            outputTokens: 12,
+            totalTokens: 312,
+          }),
+          event(9, { kind: 'turn-completed', finishReason: 'stop' }),
+        ],
+      },
+    ]);
+
+    expect(evidence.usageCurve).toEqual({
+      steps: [
+        {
+          stepIndex: 1,
+          turnIndex: 1,
+          inputTokens: 100,
+          outputTokens: 10,
+          cachedInputTokens: null,
+        },
+        {
+          stepIndex: 2,
+          turnIndex: 1,
+          inputTokens: 220,
+          outputTokens: 8,
+          cachedInputTokens: 96,
+        },
+        {
+          stepIndex: 3,
+          turnIndex: 2,
+          inputTokens: 300,
+          outputTokens: 12,
+          cachedInputTokens: null,
+        },
+      ],
+      stepCount: 3,
+      totalInputTokens: 620,
+      peakInputTokens: 300,
+      finalInputTokens: 300,
+      meanInputTokens: 206.666667,
+      inputTokenSlopePerStep: 100,
+    });
+    expect(evidence.inputTokens).toBe(620);
+  });
+
+  it('leaves the slope null when a single step cannot describe growth', () => {
+    const evidence = curveTrace([
+      {
+        events: [
+          event(1, {
+            kind: 'step-usage',
+            stepIndex: 1,
+            inputTokens: 42,
+            outputTokens: 3,
+            totalTokens: 45,
+          }),
+          event(2, { kind: 'text-delta', text: 'done' }),
+          event(3, { kind: 'turn-completed', finishReason: 'stop' }),
+        ],
+      },
+    ]);
+
+    expect(evidence.usageCurve).toMatchObject({
+      stepCount: 1,
+      inputTokenSlopePerStep: null,
+      meanInputTokens: 42,
+    });
+  });
+
+  it('omits the curve when any completed turn reported no step', () => {
+    const evidence = curveTrace([
+      {
+        events: [
+          event(1, {
+            kind: 'step-usage',
+            stepIndex: 1,
+            inputTokens: 100,
+            outputTokens: 10,
+            totalTokens: 110,
+          }),
+          event(2, { kind: 'turn-completed', finishReason: 'stop' }),
+        ],
+      },
+      {
+        events: [
+          event(3, { kind: 'text-delta', text: 'no step usage here' }),
+          event(4, { kind: 'turn-completed', finishReason: 'stop' }),
+        ],
+      },
+    ]);
+
+    expect(evidence.usageCurve).toBeUndefined();
+  });
+
+  it('omits the curve when the adapter reported an unusable step', () => {
+    const evidence = curveTrace([
+      {
+        events: [
+          event(1, {
+            kind: 'step-usage',
+            stepIndex: 1,
+            inputTokens: 100,
+            outputTokens: 10,
+            totalTokens: 110,
+          }),
+          event(2, {
+            kind: 'diagnostic',
+            code: 'step-usage-unavailable',
+            message: 'Step 2 reported no input tokens.',
+          }),
+          event(3, { kind: 'turn-completed', finishReason: 'stop' }),
+        ],
+      },
+    ]);
+
+    expect(evidence.usageCurve).toBeUndefined();
+  });
+
+  it('omits the curve when a turn was interrupted', () => {
+    const evidence = curveTrace([
+      {
+        events: [
+          event(1, {
+            kind: 'step-usage',
+            stepIndex: 1,
+            inputTokens: 100,
+            outputTokens: 10,
+            totalTokens: 110,
+          }),
+          event(2, { kind: 'interrupted', reason: 'cancelled' }),
+        ],
+      },
+    ]);
+
+    expect(evidence.usageCurve).toBeUndefined();
+    expect(evidence.inputTokens).toBeUndefined();
+  });
+
+  it('rejects step indices that do not increase within a turn', () => {
+    expect(() =>
+      curveTrace([
+        {
+          events: [
+            event(1, {
+              kind: 'step-usage',
+              stepIndex: 2,
+              inputTokens: 100,
+              outputTokens: 10,
+              totalTokens: 110,
+            }),
+            event(2, {
+              kind: 'step-usage',
+              stepIndex: 2,
+              inputTokens: 120,
+              outputTokens: 10,
+              totalTokens: 130,
+            }),
+            event(3, { kind: 'turn-completed', finishReason: 'stop' }),
+          ],
+        },
+      ]),
+    ).toThrow(/step usage must increase/u);
+  });
+});

@@ -1,17 +1,24 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { PublicGitFixtureV1 } from '@acm/hosted-evaluation';
+import type {
+  HostedConditionRunInputV1,
+  PublicGitFixtureV1,
+} from '@acm/hosted-evaluation';
 
+import type { VercelHarnessPortOptions } from './adapter.js';
 import {
   materializePublicGitFixture,
   requireSuccessfulHarnessTrace,
   VercelHostedConditionRunner,
+  type ObservationInterceptorRequest,
   type SandboxCommandSession,
+  type VercelHostedConditionRunnerDependencies,
 } from './hosted-runner.js';
 import type {
   AgentHarnessPort,
   AgentHarnessSession,
   HarnessEventV1,
+  ObservationInterceptor,
 } from '@acm/harness-port';
 
 const FIXTURE: PublicGitFixtureV1 = {
@@ -227,5 +234,132 @@ describe('VercelHostedConditionRunner', () => {
     expect(trace).toContain('harness-event');
     expect(trace.at(-1)).toBe('session-destroyed');
     expect(destroy).toHaveBeenCalledOnce();
+  });
+});
+
+describe('per-step observation interception', () => {
+  function conditionInput(
+    condition: 'raw' | 'managed',
+    harness: 'codex' | 'claude-code' = 'claude-code',
+  ): HostedConditionRunInputV1 {
+    return {
+      condition,
+      harness,
+      model: 'test-model',
+      fixture: FIXTURE,
+      task: 'Fix the failing test.',
+      checkpointId: 'after-setup',
+      contextText: 'prior state',
+      timeoutMs: 60_000,
+    };
+  }
+
+  function stubInterceptor(policy: 'raw' | 'reduced'): ObservationInterceptor {
+    return {
+      policy,
+      intercept: () => {
+        throw new Error('The stub interceptor is never invoked.');
+      },
+    };
+  }
+
+  function captureOptions(
+    dependencies: Partial<VercelHostedConditionRunnerDependencies>,
+  ): {
+    run: (input: HostedConditionRunInputV1) => Promise<void>;
+    options: () => VercelHarnessPortOptions | undefined;
+  } {
+    let captured: VercelHarnessPortOptions | undefined;
+    const runner = new VercelHostedConditionRunner({
+      createSandbox: () => ({}) as never,
+      createPort: (options) => {
+        captured = options;
+        return {
+          harness: options.harness,
+          createSession: async () => {
+            throw new Error('session-not-created');
+          },
+        };
+      },
+      ...dependencies,
+    });
+    return {
+      run: async (input) => {
+        await expect(runner.runCondition(input)).rejects.toThrow(
+          'session-not-created',
+        );
+      },
+      options: () => captured,
+    };
+  }
+
+  it('leaves the harness builtins in place when no interceptor is supplied', async () => {
+    const capture = captureOptions({});
+    await capture.run(conditionInput('managed'));
+    expect(capture.options()?.observation).toBeUndefined();
+  });
+
+  it('overrides the builtins each harness actually owns', async () => {
+    const codex = captureOptions({
+      createObservationInterceptor: () => stubInterceptor('reduced'),
+    });
+    await codex.run(conditionInput('managed', 'codex'));
+    expect(codex.options()?.observation?.tools).toEqual(['bash']);
+
+    const claudeCode = captureOptions({
+      createObservationInterceptor: () => stubInterceptor('reduced'),
+    });
+    await claudeCode.run(conditionInput('managed', 'claude-code'));
+    expect(claudeCode.options()?.observation?.tools).toEqual([
+      'read',
+      'grep',
+      'bash',
+    ]);
+  });
+
+  it('passes the session identity the interceptor must record against', async () => {
+    const requests: ObservationInterceptorRequest[] = [];
+    const capture = captureOptions({
+      createObservationInterceptor: (request) => {
+        requests.push(request);
+        return stubInterceptor('raw');
+      },
+    });
+
+    await capture.run(conditionInput('raw', 'codex'));
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({ condition: 'raw', harness: 'codex' });
+    expect(requests[0]?.sessionId).toMatch(/^ses_[0-9a-f]{32}$/u);
+  });
+
+  it('refuses a baseline that would reduce its own observations', async () => {
+    const runner = new VercelHostedConditionRunner({
+      createSandbox: () => ({}) as never,
+      createPort: () => {
+        throw new Error('the port must never be created');
+      },
+      createObservationInterceptor: () => stubInterceptor('reduced'),
+    });
+
+    await expect(runner.runCondition(conditionInput('raw'))).rejects.toThrow(
+      'requires the raw observation policy but received reduced',
+    );
+  });
+
+  it('refuses a managed condition that would not reduce anything', async () => {
+    const runner = new VercelHostedConditionRunner({
+      createSandbox: () => ({}) as never,
+      createPort: () => {
+        throw new Error('the port must never be created');
+      },
+      createObservationInterceptor: () => stubInterceptor('raw'),
+    });
+
+    await expect(
+      runner.runCondition(conditionInput('managed')),
+    ).rejects.toThrow(
+      'requires the reduced observation policy but received raw',
+    );
   });
 });

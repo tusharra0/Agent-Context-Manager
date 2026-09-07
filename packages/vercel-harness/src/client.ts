@@ -11,6 +11,8 @@ import {
   type ClaudeCodeHarnessSettings,
 } from '@ai-sdk/harness-claude-code';
 
+import type { ToolSet } from 'ai';
+
 import type { HarnessKind } from '@acm/harness-port';
 
 export interface VercelHarnessSessionHandle {
@@ -35,6 +37,11 @@ export interface RealVercelHarnessClientOptions {
   sandbox: HarnessV1SandboxProvider;
   instructions?: string;
   sandboxConfig?: HarnessAgentSandboxConfig;
+  /**
+   * Host-executed tools. Keys that collide with a harness builtin replace it,
+   * which is how observation interception reaches the agent's transcript.
+   */
+  tools?: ToolSet;
   codex?: CodexHarnessSettings;
   claudeCode?: ClaudeCodeHarnessSettings;
 }
@@ -85,6 +92,7 @@ export function createRealVercelHarnessClient(
     ...(options.sandboxConfig === undefined
       ? {}
       : { sandboxConfig: options.sandboxConfig }),
+    ...(options.tools === undefined ? {} : { tools: options.tools }),
   };
 
   if (options.harness === 'codex') {

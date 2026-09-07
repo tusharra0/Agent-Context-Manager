@@ -45,7 +45,20 @@ function tokenCount(value: unknown): number | undefined {
     : undefined;
 }
 
-function usageEvent(usage: unknown): HarnessEventDataV1 {
+type ParsedUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cachedInputTokens?: number;
+  details?: JsonValue;
+};
+
+/**
+ * Accepts a vendor usage object only when input and output counts are both
+ * present and valid. A partially reported usage object must not become a
+ * number that later looks like a complete measurement.
+ */
+function parseUsage(usage: unknown): ParsedUsage | undefined {
   const usageRecord = record(usage) ?? {};
   const inputTokens = tokenCount(usageRecord.inputTokens);
   const outputTokens = tokenCount(usageRecord.outputTokens);
@@ -56,20 +69,41 @@ function usageEvent(usage: unknown): HarnessEventDataV1 {
     (usageRecord.totalTokens !== undefined && reportedTotal === undefined) ||
     !Number.isSafeInteger(inputTokens + outputTokens)
   ) {
+    return undefined;
+  }
+  const cachedInputTokens = tokenCount(usageRecord.cachedInputTokens);
+  const details = json(usage);
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens: reportedTotal ?? inputTokens + outputTokens,
+    ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
+    ...(details === undefined ? {} : { details }),
+  };
+}
+
+function usageEvent(usage: unknown): HarnessEventDataV1 {
+  const parsed = parseUsage(usage);
+  if (parsed === undefined) {
     return diagnostic(
       'usage-unavailable',
       'Complete valid input and output token usage was not reported for this turn.',
       usage,
     );
   }
-  const details = json(usage);
-  return {
-    kind: 'usage',
-    inputTokens,
-    outputTokens,
-    totalTokens: reportedTotal ?? inputTokens + outputTokens,
-    ...(details === undefined ? {} : { details }),
-  };
+  return { kind: 'usage', ...parsed };
+}
+
+function stepUsageEvent(usage: unknown, stepIndex: number): HarnessEventDataV1 {
+  const parsed = parseUsage(usage);
+  if (parsed === undefined) {
+    return diagnostic(
+      'step-usage-unavailable',
+      `Complete valid input and output token usage was not reported for step ${stepIndex}.`,
+      usage,
+    );
+  }
+  return { kind: 'step-usage', stepIndex, ...parsed };
 }
 
 const STRUCTURAL_PARTS = new Set([
@@ -219,4 +253,24 @@ export function normalizeVercelStreamPart(part: unknown): HarnessEventDataV1[] {
         ),
       ];
   }
+}
+
+/**
+ * Wraps {@link normalizeVercelStreamPart} with the small amount of state a
+ * single turn needs. Step usage arrives on `finish-step` parts that carry no
+ * index of their own, so the position must be counted as the stream is
+ * consumed. Create one normalizer per turn; step indices restart at 1.
+ */
+export function createVercelStreamNormalizer(): (
+  part: unknown,
+) => HarnessEventDataV1[] {
+  let stepIndex = 0;
+  return (part: unknown): HarnessEventDataV1[] => {
+    const value = record(part);
+    if (value !== undefined && value.type === 'finish-step') {
+      stepIndex += 1;
+      return [stepUsageEvent(value.usage, stepIndex)];
+    }
+    return normalizeVercelStreamPart(part);
+  };
 }

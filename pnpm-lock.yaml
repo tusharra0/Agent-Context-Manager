@@ -142,6 +142,24 @@ importers:
         specifier: ^4.1.5
         version: 4.4.3
 
+  packages/observation-pipeline:
+    dependencies:
+      '@acm/core':
+        specifier: workspace:*
+        version: link:../core
+      '@acm/event-store':
+        specifier: workspace:*
+        version: link:../event-store
+      '@acm/harness-port':
+        specifier: workspace:*
+        version: link:../harness-port
+      '@acm/reducers':
+        specifier: workspace:*
+        version: link:../reducers
+      zod:
+        specifier: ^4.1.5
+        version: 4.4.3
+
   packages/reducers:
     dependencies:
       '@acm/core':

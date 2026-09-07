@@ -60,6 +60,18 @@ Properties:
 - Local by default
 - A stable artifact URI in reduced context
 
+### Observation interceptor
+
+Sits between a tool's execution and the agent's transcript. It stores the raw
+observation, classifies it, reduces it, and returns the reduced text as the
+tool result, so the saving persists across the session instead of being
+overwritten by the harness's own history.
+
+Both experimental conditions traverse this path. Under the raw policy the
+reduction is computed and recorded but never substituted, so the conditions
+differ in one decision and the reducible share of a run stays measurable from
+the baseline.
+
 ### Typed reducers
 
 Replace raw observations with smaller representations. Each reducer declares:
@@ -144,6 +156,7 @@ tool-time workspace revisions remain unknown rather than becoming zero.
 @acm/working-state    Durable state transitions
 @acm/context-assembler
 @acm/harness-port     Stable internal adapter interface
+@acm/observation-pipeline  Per-step observation interception
 @acm/vercel-harness   Experimental Vercel integration boundary
 @acm/evaluation       Experiment definitions and metrics
 ```
@@ -151,9 +164,14 @@ tool-time workspace revisions remain unknown rather than becoming zero.
 Only create a package when its vertical slice starts.
 
 The core, reducers, event store, working-state, context assembler, offline
-evaluation, harness adapter, and hosted evaluation packages are implemented.
-The hosted evaluation currently runs one paired checkpoint per isolated task.
-Continuous multi-turn context replacement remains an adapter limitation.
+evaluation, harness adapter, hosted evaluation, and observation pipeline
+packages are implemented.
+
+Observations are now reduced on the per-step context path: host-executed tools
+shadow the harness's own builtins, so a reduced observation stays reduced in
+every later model request of a session rather than only the first. The harness
+preamble and prior transcript remain outside ACM's reach; reaching them needs
+the model-facing proxy described in ADR 008.
 
 ## Architectural risks
 

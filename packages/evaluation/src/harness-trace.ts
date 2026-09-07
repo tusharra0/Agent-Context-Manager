@@ -7,12 +7,15 @@ import {
   type HarnessEventV1,
 } from '@acm/harness-port';
 
+import { round } from './numbers.js';
 import {
   ConditionEvidenceV1Schema,
+  ConditionUsageCurveV1Schema,
   EvaluationConditionSchema,
   NormalizedAgentActionV1Schema,
   TaskOutcomeV1Schema,
   type ConditionEvidenceV1,
+  type ConditionUsageCurveV1,
   type NormalizedAgentActionV1,
   type RecordedActionV1,
 } from './schemas.js';
@@ -181,6 +184,70 @@ function actionsForTurn(turn: HarnessTraceTurnV1): RecordedActionV1[] {
   return [];
 }
 
+/**
+ * Diagnostic code the harness adapter emits when a provider reports a step
+ * without complete usage. One such step makes the whole curve unusable: the
+ * missing request still consumed input, so the remaining points would
+ * understate the run rather than merely omit part of it.
+ */
+const STEP_USAGE_UNAVAILABLE_CODE = 'step-usage-unavailable';
+
+type PendingCurveStep = {
+  turnIndex: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedInputTokens: number | null;
+};
+
+function sum(values: readonly number[]): number {
+  return values.reduce((total, value) => total + value, 0);
+}
+
+function maximum(values: readonly number[]): number {
+  // Reduced rather than spread: a long run can exceed the argument limit.
+  return values.reduce(
+    (highest, value) => (value > highest ? value : highest),
+    0,
+  );
+}
+
+/**
+ * Least-squares slope of input tokens against step index. A flat slope means a
+ * reduction applied once at the start; a lower slope than the paired condition
+ * means the reduction compounds as the session grows.
+ */
+function inputTokenSlope(values: readonly number[]): number | null {
+  if (values.length < 2) return null;
+  const meanIndex = (values.length + 1) / 2;
+  const meanValue = sum(values) / values.length;
+  let covariance = 0;
+  let variance = 0;
+  for (const [position, value] of values.entries()) {
+    const indexDelta = position + 1 - meanIndex;
+    covariance += indexDelta * (value - meanValue);
+    variance += indexDelta * indexDelta;
+  }
+  return variance === 0 ? null : round(covariance / variance);
+}
+
+function buildUsageCurve(
+  steps: readonly PendingCurveStep[],
+): ConditionUsageCurveV1 {
+  const inputs = steps.map((step) => step.inputTokens);
+  return ConditionUsageCurveV1Schema.parse({
+    steps: steps.map((step, position) => ({
+      stepIndex: position + 1,
+      ...step,
+    })),
+    stepCount: steps.length,
+    totalInputTokens: sum(inputs),
+    peakInputTokens: maximum(inputs),
+    finalInputTokens: inputs.at(-1),
+    meanInputTokens: round(sum(inputs) / inputs.length),
+    inputTokenSlopePerStep: inputTokenSlope(inputs),
+  });
+}
+
 /** Builds Phase 3 evidence from provider-neutral Phase 4 traces. */
 export function buildConditionEvidenceFromHarnessTrace(
   input: RecordedHarnessEvidenceInputV1,
@@ -190,11 +257,16 @@ export function buildConditionEvidenceFromHarnessTrace(
   let inputTokens = 0;
   let outputTokens = 0;
   let completeUsage = parsedInput.turns.length > 0;
+  let completeStepUsage = parsedInput.turns.length > 0;
+  const curveSteps: PendingCurveStep[] = [];
   const actions: RecordedActionV1[] = [];
   const checkpointActions: ConditionEvidenceV1['checkpointActions'] = [];
 
-  for (const turn of parsedInput.turns) {
+  for (const [turnPosition, turn] of parsedInput.turns.entries()) {
+    const turnIndex = turnPosition + 1;
     let usageEvents = 0;
+    let stepUsageEvents = 0;
+    let previousStepIndex = 0;
     let turnCompleted = false;
     let interrupted = false;
     for (const event of turn.events) {
@@ -212,6 +284,27 @@ export function buildConditionEvidenceFromHarnessTrace(
         inputTokens += event.inputTokens;
         outputTokens += event.outputTokens;
       }
+      if (event.kind === 'step-usage') {
+        if (event.stepIndex <= previousStepIndex) {
+          throw new TypeError(
+            `Harness trace step usage must increase within a turn; step ${event.stepIndex} followed ${previousStepIndex}.`,
+          );
+        }
+        previousStepIndex = event.stepIndex;
+        stepUsageEvents += 1;
+        curveSteps.push({
+          turnIndex,
+          inputTokens: event.inputTokens,
+          outputTokens: event.outputTokens,
+          cachedInputTokens: event.cachedInputTokens ?? null,
+        });
+      }
+      if (
+        event.kind === 'diagnostic' &&
+        event.code === STEP_USAGE_UNAVAILABLE_CODE
+      ) {
+        completeStepUsage = false;
+      }
       if (event.kind === 'turn-completed') turnCompleted = true;
       if (event.kind === 'interrupted' || event.kind === 'error') {
         interrupted = true;
@@ -219,6 +312,8 @@ export function buildConditionEvidenceFromHarnessTrace(
     }
     // Partial or duplicate totals must never look like complete run usage.
     completeUsage &&= usageEvents === 1 && turnCompleted && !interrupted;
+    // A turn that reported no step at all leaves a hole the curve cannot span.
+    completeStepUsage &&= stepUsageEvents > 0 && turnCompleted && !interrupted;
 
     const turnActions = actionsForTurn(turn);
     actions.push(...turnActions);
@@ -235,6 +330,11 @@ export function buildConditionEvidenceFromHarnessTrace(
       });
     }
   }
+
+  const usageCurve =
+    completeStepUsage && curveSteps.length > 0
+      ? buildUsageCurve(curveSteps)
+      : undefined;
 
   return ConditionEvidenceV1Schema.parse({
     condition: parsedInput.condition,
@@ -259,6 +359,7 @@ export function buildConditionEvidenceFromHarnessTrace(
     ...(parsedInput.costUsd === undefined
       ? {}
       : { costUsd: parsedInput.costUsd }),
+    ...(usageCurve === undefined ? {} : { usageCurve }),
   });
 }
 

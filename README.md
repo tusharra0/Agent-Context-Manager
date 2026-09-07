@@ -6,7 +6,7 @@ It stores a lossless session record outside the model's immediate prompt, reduce
 
 ## Current status
 
-Phases 1 through 5 are implemented. In addition to lossless typed reduction,
+Phases 1 through 6 are implemented. In addition to lossless typed reduction,
 replayable working state, and deterministic paired evaluation, Codex and Claude
 Code now run behind one project-owned harness contract. Their streamed text,
 tool activity, usage, completion, interruption, and errors normalize into
@@ -14,7 +14,10 @@ versioned ACM events that can be converted directly into Phase 3 evidence.
 Authenticated hosted runs execute paired conditions in fresh Vercel Sandboxes,
 derive managed checkpoints from the same typed reducers used locally, and keep
 private execution evidence in a durable local journal. A read-only Next.js
-dashboard accepts only sanitized aggregate results.
+dashboard accepts only sanitized aggregate results. Observations are now
+reduced on the per-step context path rather than only at a checkpoint, and
+per-request usage is recorded so a compounding saving can be told apart from a
+one-time one.
 
 ## Requirements
 
@@ -58,6 +61,7 @@ packages/working-state/ Pure transitions, invariants, and replay
 packages/context-assembler/ Priority and token-budget context selection
 packages/evaluation/ Offline paired replay, metrics, and policy reports
 packages/harness-port/ Provider-neutral session and event contracts
+packages/observation-pipeline/ Per-step observation interception and recording
 packages/hosted-evaluation/ Hosted plans, orchestration, and sanitization
 packages/vercel-harness/ Isolated AI SDK 7 Codex and Claude Code adapters
 ```
@@ -258,3 +262,37 @@ Local hosted runs require `vercel login`, a linked Vercel project, and fresh
 OIDC credentials from `vercel env pull`. Deployed Vercel workloads receive
 OIDC automatically. The dashboard itself never starts a sandbox or accepts
 commands, repositories, credentials, or prompts over HTTP.
+
+## Phase 6 per-step context control
+
+A checkpoint reduction only shrinks the first model request of a run. The
+harness owns its transcript after that, so the first authenticated paired run
+reduced its checkpoint by an estimated 21.9% while provider-reported input
+tokens fell 0.5%.
+
+Phase 6 moves the reduction onto the per-step context path. Host-executed tools
+shadow the harness's own `read`, `grep`, and `bash` builtins: the raw
+observation is stored, a deterministic reducer runs, and the reduced text is
+what the harness writes into the transcript. That text is present in every
+later model request of the session, so the saving compounds instead of being
+overwritten.
+
+Nothing leaves active context before it is recoverable. An unavailable artifact
+store, an unclaimed tool, a classifier or reducer fault, a reduction the reducer
+marks unsafe, and a reduction no smaller than its source all fall back to the
+raw observation and record why.
+
+Both conditions run the same interception path. Under the `raw` policy the
+reduction is still computed and recorded but never substituted, so the
+conditions differ in exactly one decision and the baseline measures what the
+managed condition would have done with the same bytes. The hosted runner
+rejects a mismatched pairing rather than trusting the caller.
+
+Per-request usage is recorded as `step-usage` events. A session-global curve is
+built only when every completed turn reported usage for each of its steps, and
+its least-squares slope is what separates a one-time saving from a compounding
+one.
+
+Long-horizon fixtures, a hosted plan field that selects per-step interception,
+and the paired run that would validate the two together are not yet built. The
+harness preamble and prior transcript still lie outside ACM's reach.

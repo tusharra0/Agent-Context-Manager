@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { ObservationSummaryV1Schema } from './observations.js';
 import {
   ContextAssemblyManifestV1Schema,
   ContextCandidateV1Schema,
@@ -204,6 +205,7 @@ export const ConditionEvidenceV1Schema = z
     latencyMs: z.number().nonnegative().optional(),
     costUsd: z.number().nonnegative().optional(),
     usageCurve: ConditionUsageCurveV1Schema.optional(),
+    observations: ObservationSummaryV1Schema.optional(),
   })
   .strict();
 
@@ -215,6 +217,7 @@ export const ConditionMeasurementsV1Schema = z
     latencyMs: z.number().nonnegative().optional(),
     costUsd: z.number().nonnegative().optional(),
     usageCurve: ConditionUsageCurveV1Schema.optional(),
+    observations: ObservationSummaryV1Schema.optional(),
   })
   .strict();
 
@@ -347,6 +350,17 @@ export const EvaluationAggregateV1Schema = z
     baselineOnlyFailures: z.number().int().nonnegative(),
     rawRepeatedActionCount: z.number().int().nonnegative().nullable(),
     managedRepeatedActionCount: z.number().int().nonnegative().nullable(),
+    /** Cases where both conditions recorded per-step observations. */
+    observationCaseCount: z.number().int().nonnegative(),
+    rawObservationTokens: z.number().int().nonnegative().nullable(),
+    managedObservationTokens: z.number().int().nonnegative().nullable(),
+    observationTokenReductionPercent: z.number().nullable(),
+    medianObservationTokenReductionPercent: z.number().nullable(),
+    /**
+     * Share of the baseline's observation tokens a reduction could reach. A
+     * measured saving is only interpretable against it.
+     */
+    reducibleSharePercent: z.number().nullable(),
     forcedCompactionCheckpoints: z.number().int().nonnegative(),
     forcedCompactionRecoveries: z.number().int().nonnegative(),
   })

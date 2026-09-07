@@ -554,3 +554,66 @@ describe('per-step usage curves', () => {
     ).toThrow(/step usage must increase/u);
   });
 });
+
+describe('interception records in trace evidence', () => {
+  it('summarizes observation records alongside the harness trace', () => {
+    const evidence = buildConditionEvidenceFromHarnessTrace({
+      condition: 'managed',
+      harness: 'codex',
+      model: 'gpt-5.4',
+      turns: [
+        {
+          workspaceRevision: 'rev-1',
+          events: [
+            event(1, {
+              kind: 'tool-call',
+              toolCallId: 'call-1',
+              toolName: 'bash',
+              input: { command: 'pnpm vitest run --reporter=json' },
+            }),
+            event(2, { kind: 'turn-completed', finishReason: 'stop' }),
+          ],
+        },
+      ],
+      outcome: OUTCOME,
+      observationRecords: [
+        {
+          schemaVersion: 1,
+          toolCallId: 'call-1',
+          toolName: 'bash',
+          policy: 'reduced',
+          mode: 'reduced',
+          reductionOutcome: 'applied',
+          rawByteLength: 4000,
+          rawTokenEstimate: 1000,
+          observedTokenEstimate: 120,
+          reducedTokenEstimate: 120,
+          reductionUsable: true,
+          tokenEstimatorId: 'utf8-bytes-div-4@1',
+          diagnostics: [],
+        },
+      ],
+    });
+
+    expect(evidence.observations).toMatchObject({
+      observationCount: 1,
+      rawTokenEstimate: 1000,
+      observedTokenEstimate: 120,
+      reducibleSharePercent: 100,
+      observedReductionPercent: 88,
+    });
+  });
+
+  it('omits the summary when a run intercepted nothing', () => {
+    expect(
+      curveTrace([
+        {
+          events: [
+            event(1, { kind: 'text-delta', text: 'done' }),
+            event(2, { kind: 'turn-completed', finishReason: 'stop' }),
+          ],
+        },
+      ]).observations,
+    ).toBeUndefined();
+  });
+});

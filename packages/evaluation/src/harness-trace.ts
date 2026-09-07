@@ -4,10 +4,12 @@ import { JsonValueSchema, type JsonValue } from '@acm/core';
 import {
   HarnessEventV1Schema,
   HarnessKindSchema,
+  ObservationRecordV1Schema,
   type HarnessEventV1,
 } from '@acm/harness-port';
 
 import { round } from './numbers.js';
+import { summarizeObservationRecords } from './observations.js';
 import {
   ConditionEvidenceV1Schema,
   ConditionUsageCurveV1Schema,
@@ -42,6 +44,8 @@ export const RecordedHarnessEvidenceInputV1Schema = z
     outcome: TaskOutcomeV1Schema,
     latencyMs: z.number().nonnegative().optional(),
     costUsd: z.number().nonnegative().optional(),
+    /** Interception records, when the run reduced observations per step. */
+    observationRecords: z.array(ObservationRecordV1Schema).optional(),
   })
   .strict();
 
@@ -335,6 +339,9 @@ export function buildConditionEvidenceFromHarnessTrace(
     completeStepUsage && curveSteps.length > 0
       ? buildUsageCurve(curveSteps)
       : undefined;
+  const observations = summarizeObservationRecords(
+    parsedInput.observationRecords ?? [],
+  );
 
   return ConditionEvidenceV1Schema.parse({
     condition: parsedInput.condition,
@@ -360,6 +367,7 @@ export function buildConditionEvidenceFromHarnessTrace(
       ? {}
       : { costUsd: parsedInput.costUsd }),
     ...(usageCurve === undefined ? {} : { usageCurve }),
+    ...(observations === undefined ? {} : { observations }),
   });
 }
 

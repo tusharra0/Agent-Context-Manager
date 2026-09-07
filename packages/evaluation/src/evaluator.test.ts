@@ -500,3 +500,90 @@ describe('offline paired evaluation', () => {
     });
   });
 });
+
+describe('observation aggregate', () => {
+  function summary(
+    observedTokenEstimate: number,
+  ): NonNullable<
+    EvaluationExperimentV1['cases'][number]['rawEvidence']['observations']
+  > {
+    return {
+      observationCount: 4,
+      tokenEstimatorId: 'test-characters@1',
+      rawTokenEstimate: 1000,
+      observedTokenEstimate,
+      reducibleRawTokenEstimate: 600,
+      reducibleReducedTokenEstimate: 100,
+      reducibleSharePercent: 60,
+      observedReductionPercent: ((1000 - observedTokenEstimate) / 1000) * 100,
+      outcomes: {
+        applied: 2,
+        'not-requested': 0,
+        'no-reducer': 1,
+        unsafe: 1,
+        'not-smaller': 0,
+        failed: 0,
+        'raw-evidence-unavailable': 0,
+        'binary-output': 0,
+      },
+    };
+  }
+
+  function withObservations(): EvaluationExperimentV1 {
+    const input = experiment();
+    const evaluationCase = input.cases[0]!;
+    return {
+      ...input,
+      cases: [
+        {
+          ...evaluationCase,
+          rawEvidence: {
+            ...evaluationCase.rawEvidence,
+            observations: summary(1000),
+          },
+          managedEvidence: {
+            ...evaluationCase.managedEvidence,
+            observations: summary(500),
+          },
+        },
+      ],
+    };
+  }
+
+  it('measures the saving against the baseline that kept its observations', () => {
+    expect(
+      evaluateExperiment(withObservations(), ESTIMATOR).aggregate,
+    ).toMatchObject({
+      observationCaseCount: 1,
+      rawObservationTokens: 1000,
+      managedObservationTokens: 500,
+      observationTokenReductionPercent: 50,
+      medianObservationTokenReductionPercent: 50,
+      // Taken from the baseline: what a reduction could reach, not what it did.
+      reducibleSharePercent: 60,
+    });
+  });
+
+  it('reports nothing when a run recorded no observations', () => {
+    expect(evaluateExperiment(experiment(), ESTIMATOR).aggregate).toMatchObject(
+      {
+        observationCaseCount: 0,
+        rawObservationTokens: null,
+        managedObservationTokens: null,
+        observationTokenReductionPercent: null,
+        reducibleSharePercent: null,
+      },
+    );
+  });
+
+  it('carries the summary through to case measurements', () => {
+    const result = evaluateExperiment(withObservations(), ESTIMATOR);
+    expect(result.cases[0]?.rawMeasurements.observations).toMatchObject({
+      observationCount: 4,
+      reducibleSharePercent: 60,
+    });
+    expect(
+      result.cases[0]?.managedMeasurements.observations?.observedTokenEstimate,
+    ).toBe(500);
+  });
+});

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { createSessionId } from '@acm/core';
 import type {
   HostedConditionRunInputV1,
   HostedConditionRunnerPort,
@@ -22,7 +23,9 @@ afterEach(async () => {
   );
 });
 
-async function fixture(): Promise<{
+async function fixture(
+  observationInterception: 'off' | 'per-step' = 'off',
+): Promise<{
   directory: string;
   planPath: string;
   outputPath: string;
@@ -49,6 +52,7 @@ async function fixture(): Promise<{
       harness: 'codex',
       model: 'test/model',
       timeoutMs: 60_000,
+      observationInterception,
     }),
   );
   return { directory, planPath, outputPath };
@@ -126,5 +130,71 @@ describe('hostedCommand preflight and evidence', () => {
     await expect(readFile(summaryPath)).rejects.toMatchObject({
       code: 'ENOENT',
     });
+  });
+});
+
+describe('hostedCommand per-step interception', () => {
+  const failing: HostedConditionRunnerPort = {
+    async runCondition() {
+      throw new Error('runner-stopped');
+    },
+  };
+
+  async function capture(
+    mode: 'off' | 'per-step',
+  ): Promise<{ createObservationInterceptor?: unknown }> {
+    const { directory, planPath, outputPath } = await fixture(mode);
+    const { runtime, io } = context(directory);
+    let received: { createObservationInterceptor?: unknown } = {};
+    await expect(
+      hostedCommand(
+        ['run', planPath],
+        new Map([['output', outputPath]]),
+        runtime,
+        io,
+        {
+          createRunner: (options) => {
+            received = options;
+            return failing;
+          },
+          loadEnvironment: vi.fn(),
+        },
+      ),
+    ).rejects.toThrow('runner-stopped');
+    return received;
+  }
+
+  it('supplies no interceptor when the plan does not ask for one', async () => {
+    expect((await capture('off')).createObservationInterceptor).toBeUndefined();
+  });
+
+  it('gives each condition the policy the runner will demand of it', async () => {
+    const received = await capture('per-step');
+    const factory = received.createObservationInterceptor as (input: {
+      condition: 'raw' | 'managed';
+      harness: 'codex';
+      sessionId: string;
+      workingDirectory: () => string;
+    }) => { interceptor: { policy: string } };
+    expect(factory).toBeTypeOf('function');
+
+    const shared = {
+      harness: 'codex' as const,
+      workingDirectory: () => '/workspace/repo',
+    };
+    expect(
+      factory({
+        ...shared,
+        condition: 'raw',
+        sessionId: createSessionId(),
+      }).interceptor.policy,
+    ).toBe('raw');
+    expect(
+      factory({
+        ...shared,
+        condition: 'managed',
+        sessionId: createSessionId(),
+      }).interceptor.policy,
+    ).toBe('reduced');
   });
 });

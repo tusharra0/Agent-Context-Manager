@@ -64,8 +64,14 @@ export interface RecordingObservationInterceptorOptions {
   readonly policy: ObservationPolicy;
   readonly artifacts: ArtifactStore;
   readonly metadata: MetadataStore;
-  /** Absolute directory tools run in; recorded as build and search provenance. */
-  readonly workingDirectory: string;
+  /**
+   * Absolute directory tools run in, recorded as build and search provenance.
+   *
+   * Accepts a resolver because a sandbox reports its session directory only
+   * after the harness has acquired it, which is later than the interceptor has
+   * to exist.
+   */
+  readonly workingDirectory: string | (() => string);
   readonly classifiers?: readonly ObservationClassifier[];
   readonly maxObservationBytes?: number;
   readonly now?: () => Date;
@@ -113,7 +119,7 @@ export class RecordingObservationInterceptor implements ObservationInterceptor {
   private readonly sessionId: SessionId;
   private readonly artifacts: ArtifactStore;
   private readonly metadata: MetadataStore;
-  private readonly context: ObservationContext;
+  private readonly resolveWorkingDirectory: () => string;
   private readonly classifiers: readonly ObservationClassifier[];
   private readonly maxObservationBytes: number;
   private readonly now: () => Date;
@@ -136,14 +142,21 @@ export class RecordingObservationInterceptor implements ObservationInterceptor {
         'maxObservationBytes must be a safe integer of at least 1024.',
       );
     }
-    if (options.workingDirectory.length === 0) {
+    if (
+      typeof options.workingDirectory === 'string' &&
+      options.workingDirectory.length === 0
+    ) {
       throw new TypeError('workingDirectory must not be empty.');
     }
     this.policy = options.policy;
     this.sessionId = options.sessionId;
     this.artifacts = options.artifacts;
     this.metadata = options.metadata;
-    this.context = { workingDirectory: options.workingDirectory };
+    const workingDirectory = options.workingDirectory;
+    this.resolveWorkingDirectory =
+      typeof workingDirectory === 'string'
+        ? () => workingDirectory
+        : workingDirectory;
     this.classifiers = options.classifiers ?? defaultObservationClassifiers();
     this.maxObservationBytes = maxObservationBytes;
     this.now = options.now ?? (() => new Date());
@@ -173,6 +186,16 @@ export class RecordingObservationInterceptor implements ObservationInterceptor {
     return this.generateUuid === undefined
       ? createEventId()
       : createEventId(this.generateUuid);
+  }
+
+  private observationContext(): ObservationContext {
+    const workingDirectory = this.resolveWorkingDirectory();
+    if (workingDirectory.length === 0) {
+      throw new TypeError(
+        'The working-directory resolver returned an empty path.',
+      );
+    }
+    return { workingDirectory };
   }
 
   private ensureSession(createdAt: string): void {
@@ -288,12 +311,13 @@ export class RecordingObservationInterceptor implements ObservationInterceptor {
 
     let classification: ObservationClassification | undefined;
     try {
+      const context = this.observationContext();
       for (const classifier of this.classifiers) {
         classification = classifier.classify({
           invocation,
           bytes: output.bytes,
           exitCode: output.exitCode,
-          context: this.context,
+          context,
         });
         if (classification !== undefined) break;
       }

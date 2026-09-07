@@ -19,7 +19,9 @@ const FAILURE_KINDS = [
 export function sanitizeEvaluationResult(
   result: EvaluationResultV1,
   plan: Pick<HostedEvaluationPlanV1, 'harness' | 'model'> &
-    Partial<Pick<HostedEvaluationPlanV1, 'contextSource'>>,
+    Partial<
+      Pick<HostedEvaluationPlanV1, 'contextSource' | 'observationInterception'>
+    >,
   createdAt: Date,
 ): SanitizedExperimentSummaryV1 {
   const counts = Object.fromEntries(
@@ -39,6 +41,7 @@ export function sanitizeEvaluationResult(
     harness: plan.harness,
     model: plan.model,
     contextSource: plan.contextSource ?? 'recorded-candidates',
+    observationInterception: plan.observationInterception ?? 'off',
     aggregate: result.aggregate,
     policyFailureCounts: counts,
   });

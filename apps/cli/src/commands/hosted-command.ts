@@ -24,9 +24,14 @@ import {
   type SanitizedDashboardDatasetV1,
   type HostedConditionRunnerPort,
 } from '@acm/hosted-evaluation';
-import { LocalArtifactStore } from '@acm/event-store';
+import { LocalArtifactStore, SqliteMetadataStore } from '@acm/event-store';
+import type { ObservationRecordV1 } from '@acm/harness-port';
+import { RecordingObservationInterceptor } from '@acm/observation-pipeline';
 import { TOKEN_ESTIMATOR_ID, estimateTokens } from '@acm/reducers';
-import { VercelHostedConditionRunner } from '@acm/vercel-harness';
+import {
+  VercelHostedConditionRunner,
+  type VercelHostedConditionRunnerDependencies,
+} from '@acm/vercel-harness';
 
 import {
   UsageError,
@@ -35,19 +40,59 @@ import {
 } from '../arguments.js';
 import type { CliIo, CliRuntime } from '../cli-context.js';
 import { requirePositionals } from '../command-options.js';
-import { resolveStorageConfiguration } from '../configuration.js';
+import {
+  resolveStorageConfiguration,
+  type StorageConfiguration,
+} from '../configuration.js';
 
 const ESTIMATOR = { id: TOKEN_ESTIMATOR_ID, estimate: estimateTokens } as const;
 
+export type ObservationInterceptorFactory = NonNullable<
+  VercelHostedConditionRunnerDependencies['createObservationInterceptor']
+>;
+
 export interface HostedCommandDependencies {
-  createRunner(): HostedConditionRunnerPort;
+  createRunner(options: {
+    createObservationInterceptor?: ObservationInterceptorFactory;
+  }): HostedConditionRunnerPort;
   loadEnvironment(): void;
 }
 
 const DEFAULT_DEPENDENCIES: HostedCommandDependencies = {
-  createRunner: () => new VercelHostedConditionRunner(),
+  createRunner: (options) => new VercelHostedConditionRunner(options),
   loadEnvironment: loadLocalVercelEnvironment,
 };
+
+/**
+ * Builds the per-condition interceptors a per-step plan needs.
+ *
+ * Both conditions record into the same local stores, and each is given the
+ * policy its condition requires: the hosted runner rejects the pairing if this
+ * is ever wrong, so a baseline cannot silently reduce its own observations.
+ */
+export function createObservationInterception(
+  storage: StorageConfiguration,
+  artifacts: LocalArtifactStore,
+): { factory: ObservationInterceptorFactory; close: () => void } {
+  const metadata = new SqliteMetadataStore(storage.databasePath);
+  return {
+    factory: ({ condition, sessionId, workingDirectory }) => {
+      const records: ObservationRecordV1[] = [];
+      return {
+        interceptor: new RecordingObservationInterceptor({
+          sessionId,
+          policy: condition === 'raw' ? 'raw' : 'reduced',
+          artifacts,
+          metadata,
+          workingDirectory,
+          onRecord: (record) => records.push(record),
+        }),
+        records: () => records,
+      };
+    },
+    close: () => metadata.close(),
+  };
+}
 
 async function readJson(path: string, label: string): Promise<unknown> {
   const bytes = await readFile(path);
@@ -188,6 +233,7 @@ export async function hostedCommand(
         caseCount: plan.experiment.cases.length,
         harness: plan.harness,
         model: plan.model,
+        observationInterception: plan.observationInterception,
       }),
     );
     return 0;
@@ -227,6 +273,8 @@ export async function hostedCommand(
     let outputHandle: FileHandle | undefined;
     let summaryHandle: FileHandle | undefined;
     let traceHandle: FileHandle | undefined;
+    let interception:
+      ReturnType<typeof createObservationInterception> | undefined;
     let resultWritten = false;
     try {
       outputHandle = await reservePrivateFile(outputPath);
@@ -246,9 +294,19 @@ export async function hostedCommand(
         runtime.environment,
       );
       const artifactStore = new LocalArtifactStore(storage.artifactRoot);
+      // Opened only for a per-step plan: an `off` run has nothing to record
+      // and should not create a database it never writes to.
+      interception =
+        plan.observationInterception === 'per-step'
+          ? createObservationInterception(storage, artifactStore)
+          : undefined;
       const result = await runHostedEvaluationPlan(
         plan,
-        dependencies.createRunner(),
+        dependencies.createRunner(
+          interception === undefined
+            ? {}
+            : { createObservationInterceptor: interception.factory },
+        ),
         ESTIMATOR,
         {
           onRecord: async (record) => {
@@ -306,6 +364,7 @@ export async function hostedCommand(
       }
       throw error;
     } finally {
+      interception?.close();
       await outputHandle.close().catch(() => undefined);
       await traceHandle.close().catch(() => undefined);
       await summaryHandle?.close().catch(() => undefined);

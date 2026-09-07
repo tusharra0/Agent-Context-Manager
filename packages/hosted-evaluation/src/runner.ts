@@ -13,6 +13,7 @@ import {
   HostedTraceRecordV1Schema,
   type HostedConditionRunOutputV1,
   type HostedEvaluationPlanV1,
+  type HostedObservationInterception,
   type PublicGitFixtureV1,
   type HostedEvaluationResultV1,
   type HostedTraceRecordV1,
@@ -33,6 +34,7 @@ export interface HostedConditionRunInputV1 {
   checkpointId: string;
   contextText: string;
   timeoutMs: number;
+  observationInterception: HostedObservationInterception;
   onTrace?: (entry: HostedConditionTraceEntry) => Promise<void>;
 }
 
@@ -136,6 +138,7 @@ export async function runHostedEvaluationPlan(
       task: evaluationCase.task,
       checkpointId: checkpoint.id,
       timeoutMs: plan.timeoutMs,
+      observationInterception: plan.observationInterception,
     } as const;
     const run = async (condition: 'raw' | 'managed', contextText: string) => {
       const scope = { caseId: evaluationCase.id, condition };
@@ -173,6 +176,7 @@ export async function runHostedEvaluationPlan(
       ],
       outcome: raw.outcome,
       latencyMs: raw.latencyMs,
+      observationRecords: raw.observationRecords,
     });
     const managedEvidence = buildConditionEvidenceFromHarnessTrace({
       condition: 'managed',
@@ -187,6 +191,7 @@ export async function runHostedEvaluationPlan(
       ],
       outcome: managed.outcome,
       latencyMs: managed.latencyMs,
+      observationRecords: managed.observationRecords,
     });
     cases.push({ ...evaluationCase, rawEvidence, managedEvidence });
   }

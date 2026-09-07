@@ -251,6 +251,7 @@ describe('Phase 5 CLI', () => {
       fixtureId: 'public-smoke-fixture',
       harness: 'codex',
       model: 'openai/gpt-5.2-codex',
+      observationInterception: 'off',
       valid: true,
     });
   });
